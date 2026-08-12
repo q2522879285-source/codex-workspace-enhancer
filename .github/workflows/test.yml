@@ -1,0 +1,41 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: bash -n install.sh uninstall.sh
+
+  windows-syntax:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --check asset-console/public/app.js
+      - run: node --check asset-browser/server.js
+      - name: Parse PowerShell installers
+        shell: pwsh
+        run: |
+          foreach ($file in @('install-windows.ps1', 'windows/uninstall.ps1', 'tools/build-release.ps1')) {
+            $errors = $null
+            [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$null, [ref]$errors)
+            if ($errors.Count) { $errors | Format-List; exit 1 }
+          }

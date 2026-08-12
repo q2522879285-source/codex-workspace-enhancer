@@ -1,0 +1,845 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="本地素材浏览、生成任务与归档管理工作台。">
+  <title>生成资产工作台</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/ui-v3.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">A</div>
+      <div>
+        <h1>资产控制台</h1>
+        <p>ASSET CONSOLE</p>
+      </div>
+    </div>
+
+    <div id="sidebarLayout" class="sidebar-layout">
+      <details class="sidebar-module collapsible-section" data-section-id="projects" open>
+        <summary class="section-summary">
+          <span class="sidebar-module-grip" draggable="true" title="拖动调整模块顺序">⠿</span>
+          <span class="section-title">工作区</span>
+          <span class="section-note">项目可拖动</span>
+        </summary>
+        <div class="sidebar-module-body">
+          <div id="projectList" class="case-list project-folder-list"></div>
+          <details class="add-project">
+            <summary>添加项目</summary>
+            <input id="projectNameInput" type="text" placeholder="项目名，如 15秒微短剧系列">
+            <input id="projectPathInput" type="text" placeholder="C:\项目\项目文件夹">
+            <input id="projectScanRootsInput" type="text" value="02-cases" placeholder="扫描目录，逗号分隔">
+            <button id="addProjectButton">添加并监听</button>
+          </details>
+        </div>
+      </details>
+
+      <details class="sidebar-module collapsible-section" data-section-id="directory" open>
+        <summary class="section-summary">
+          <span class="sidebar-module-grip" draggable="true" title="拖动调整模块顺序">⠿</span>
+          <span class="section-title">当前目录</span>
+        </summary>
+        <div id="caseList" class="case-list case-folder-list sidebar-module-body"></div>
+      </details>
+
+      <details class="sidebar-module collapsible-section" data-section-id="views">
+        <summary class="section-summary">
+          <span class="sidebar-module-grip" draggable="true" title="拖动调整模块顺序">⠿</span>
+          <span class="section-title">资产视图</span>
+        </summary>
+        <div class="filter-list sidebar-module-body" id="categoryFilters">
+          <button data-category="videoResult">视频结果</button>
+          <button data-category="generatedAsset">生成资产</button>
+          <button data-category="reference">输入参考</button>
+          <button data-category="reverse">视频反推/抽帧</button>
+          <button data-category="audio">音频资产</button>
+          <button data-category="" class="active">全部资产</button>
+        </div>
+      </details>
+
+      <details class="sidebar-module collapsible-section" data-section-id="status">
+        <summary class="section-summary">
+          <span class="sidebar-module-grip" draggable="true" title="拖动调整模块顺序">⠿</span>
+          <span class="section-title">状态筛选</span>
+        </summary>
+        <div class="filter-list sidebar-module-body" id="statusFilters">
+          <button data-status="" class="active">全部</button>
+          <button data-status="可用">可用</button>
+          <button data-status="局部可用">局部可用</button>
+          <button data-status="参考可用">参考可用</button>
+          <button data-status="暂存">暂存</button>
+          <button data-status="丢弃">丢弃</button>
+          <button data-status="待用户判断">待判断</button>
+        </div>
+      </details>
+
+      <details class="sidebar-module collapsible-section" data-section-id="types">
+        <summary class="section-summary">
+          <span class="sidebar-module-grip" draggable="true" title="拖动调整模块顺序">⠿</span>
+          <span class="section-title">类型筛选</span>
+        </summary>
+        <div class="filter-list sidebar-module-body" id="typeFilters">
+          <button data-type="" class="active">全部类型</button>
+          <button data-type="video">视频</button>
+          <button data-type="image">图片</button>
+          <button data-type="audio">音频</button>
+          <button data-type="contact">接触表</button>
+          <button data-type="frame">抽帧</button>
+        </div>
+      </details>
+
+      <details class="sidebar-module collapsible-section" data-section-id="settings">
+        <summary class="section-summary">
+          <span class="sidebar-module-grip" draggable="true" title="拖动调整模块顺序">⠿</span>
+          <span class="section-title">工作台设置</span>
+        </summary>
+        <div class="refresh-box sidebar-module-body">
+          <label><input id="workflowEnabled" type="checkbox" checked> 生产任务启用</label>
+          <label><input id="autoRefresh" type="checkbox" checked> 空闲时自动刷新</label>
+          <label><input id="compactReverse" type="checkbox" checked> 反推精简显示</label>
+          <button id="refreshButton">刷新</button>
+          <p id="refreshStatus">等待加载</p>
+        </div>
+      </details>
+    </div>
+  </aside>
+
+  <main class="main">
+    <section id="codexTaskBar" class="codex-task-bar" aria-label="当前 Codex 任务" hidden>
+      <div class="codex-task-context">
+        <span class="codex-task-eyebrow">当前 Codex 任务</span>
+        <strong id="codexTaskTitle">当前任务</strong>
+        <span id="codexBindingState" class="codex-binding-state">关联项目：未设置</span>
+      </div>
+      <nav class="codex-workspace-switcher" aria-label="资产位置">
+        <button type="button" data-codex-workspace="pending-review">待处理</button>
+        <button type="button" data-codex-workspace="bound">项目素材</button>
+        <button type="button" data-codex-workspace="ai-reference-library">精选库</button>
+      </nav>
+      <div class="codex-task-actions">
+        <button type="button" class="codex-daily-button" data-codex-workspace="dated-workspace">今日工作</button>
+        <details id="codexBindingMenu" class="codex-binding-menu">
+          <summary>选择项目</summary>
+          <div class="codex-binding-popover">
+            <strong>关联当前任务</strong>
+            <p>决定“项目素材”显示什么，以及“移动到项目”的目标。</p>
+            <label class="codex-bind-control">
+              <span class="sr-only">选择绑定项目</span>
+              <select id="codexProjectSelect" aria-label="选择绑定项目"></select>
+            </label>
+            <div class="codex-binding-actions">
+              <button id="codexBindProject" type="button" class="codex-bind-button">关联这个项目</button>
+              <button id="codexNewProjectButton" type="button" class="codex-new-project-button">新建项目</button>
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
+    <header class="topbar">
+      <div class="context-block">
+        <h2 id="caseTitle">资产控制台</h2>
+        <p id="assetCount">0 个资产</p>
+      </div>
+      <div class="toolbar">
+        <div class="search-cluster">
+          <input id="searchInput" type="search" placeholder="搜索当前工作区" aria-label="搜索资产">
+          <kbd>Ctrl K</kbd>
+        </div>
+        <details id="embeddedFilterMenu" class="embedded-filter-menu">
+          <summary><span>筛选</span><small id="embeddedFilterCount" hidden>0</small></summary>
+          <div class="embedded-filter-popover">
+            <label>资产类别
+              <select id="embeddedCategoryFilter">
+                <option value="">全部类别</option>
+                <option value="generatedAsset">生成资产</option>
+                <option value="videoResult">视频结果</option>
+                <option value="reference">参考素材</option>
+                <option value="reverse">反推 / 分镜</option>
+                <option value="audio">音频素材</option>
+              </select>
+            </label>
+            <label>工作状态
+              <select id="embeddedStatusFilter">
+                <option value="">全部状态</option>
+                <option value="待用户判断">待判断</option>
+                <option value="可用">可用</option>
+                <option value="局部可用">局部可用</option>
+                <option value="参考可用">参考可用</option>
+                <option value="暂存">暂存</option>
+                <option value="丢弃">丢弃</option>
+              </select>
+            </label>
+            <label>文件类型
+              <select id="embeddedTypeFilter">
+                <option value="">全部类型</option>
+                <option value="image">图片</option>
+                <option value="video">视频</option>
+                <option value="audio">音频</option>
+                <option value="frame">帧</option>
+                <option value="contact">联系表</option>
+              </select>
+            </label>
+            <button id="clearEmbeddedFilters" type="button">清除筛选</button>
+          </div>
+        </details>
+        <select id="sortSelect" aria-label="资产排序">
+          <option value="newest">最新优先</option>
+          <option value="oldest">最早优先</option>
+          <option value="name">按名称</option>
+          <option value="size">按大小</option>
+        </select>
+        <button id="newFolderButton" type="button" class="new-folder-button" title="在当前层级新建文件夹" hidden><span aria-hidden="true">＋</span><span>新建文件夹</span></button>
+        <button id="organizeProjectButton" type="button" class="project-organize-button workflow-primary" title="整理当前项目文件夹中的全部素材" hidden>自动整理</button>
+        <button id="selectionModeButton" type="button" class="selection-mode-button" aria-pressed="false">批量选择</button>
+        <div class="workflow-cluster">
+          <details id="toolMenu" class="tool-menu">
+            <summary>工作台</summary>
+            <div class="tool-menu-popover">
+              <button id="promptLibraryButton" class="prompt-library-open">提示词库</button>
+              <button id="generationButton" class="generation-open">生成工作台</button>
+              <button id="threeDWorkbenchButton" class="three-d-open">3D 工作台</button>
+              <button id="rhythmControlButton" class="rhythm-control-open">节奏控制</button>
+              <button id="automationButton" class="automation-open">自动化任务</button>
+            </div>
+          </details>
+        </div>
+      </div>
+    </header>
+
+    <section id="batchBar" class="batch-bar" aria-label="批量操作" hidden>
+      <div class="batch-summary">
+        <strong id="batchCount">0</strong>
+        <span>已选择</span>
+        <small>文件操作与对话附件分开处理</small>
+      </div>
+      <div class="batch-actions">
+        <button id="batchTaskAction" type="button" class="codex-task-action">移动到项目</button>
+        <button id="batchUseInCodex" type="button">附加到当前对话</button>
+        <button id="batchDiscardAssets" type="button" class="discard-action" title="只标记为丢弃，不删除文件">丢弃（不删除）</button>
+        <button id="batchMoreButton" type="button" popovertarget="batchMorePopover">批量工具</button>
+        <div id="batchMorePopover" class="batch-more-popover" popover="auto">
+          <label>工作状态
+            <select id="batchStatusSelect" aria-label="批量设置状态">
+              <option value="">设置状态</option>
+              <option value="可用">可用</option>
+              <option value="局部可用">局部可用</option>
+              <option value="参考可用">参考可用</option>
+              <option value="暂存">暂存</option>
+              <option value="丢弃">丢弃</option>
+            </select>
+          </label>
+          <button id="batchCompareAssets" type="button">并排对比（2–4 项）</button>
+          <button id="batchCurateAssets" type="button">移动到精选库…</button>
+          <button id="batchMoveAssets" type="button">移动到其他项目…</button>
+          <button id="selectVisibleAssets" type="button">全选当前结果</button>
+          <button id="batchDeleteAssets" type="button" class="danger">永久删除…</button>
+        </div>
+        <button id="clearAssetSelection" type="button">结束选择</button>
+      </div>
+    </section>
+
+    <section id="codexAttachResult" class="codex-attach-result" role="status" aria-live="polite" hidden>
+      <div>
+        <strong id="codexAttachResultTitle">已附加到当前对话</strong>
+        <span id="codexAttachResultDetail">素材路径已写入输入框，尚未发送。</span>
+      </div>
+      <div class="codex-attach-result-actions">
+        <button id="codexContinueChoosing" type="button">继续挑选</button>
+        <button id="codexReturnToComposer" type="button" class="codex-primary-action">返回对话并聚焦输入框</button>
+      </div>
+    </section>
+
+    <section id="comparePanel" class="compare-panel" aria-label="资产对比" hidden>
+      <header>
+        <div><span>对比台</span><strong id="compareTitle">0 个资产</strong></div>
+        <button id="closeComparePanel" type="button" aria-label="关闭对比">返回网格</button>
+      </header>
+      <div id="compareGrid" class="compare-grid"></div>
+    </section>
+
+    <section id="assetGrid" class="asset-grid"></section>
+  </main>
+
+  <aside class="inspector">
+    <div class="inspector-head">
+      <h2 id="detailName">未选择资产</h2>
+      <div class="inspector-actions">
+        <button id="quickMoveAsset" type="button" title="移动素材（快捷键 M）" hidden>移动</button>
+        <button id="closeDetail" type="button" title="清空选择">×</button>
+      </div>
+    </div>
+    <div id="detailPreview" class="detail-preview"></div>
+    <div id="detailBody" class="detail-body muted">选择一个资产查看详情</div>
+  </aside>
+
+  <dialog id="codexNewProjectDialog" class="automation-dialog codex-new-project-dialog">
+    <form id="codexNewProjectForm">
+      <div class="dialog-head">
+        <div>
+          <h2>新建资产项目</h2>
+          <p>选择一个已有的 Windows 文件夹，创建后会立即关联到当前 Codex 任务。</p>
+        </div>
+        <button type="button" class="dialog-close" data-codex-project-cancel aria-label="关闭">×</button>
+      </div>
+      <div class="automation-content">
+        <section class="automation-section codex-new-project-fields">
+          <label>项目名称
+            <input id="codexNewProjectName" type="text" autocomplete="off" placeholder="例如 分集项目·第 3 集" required>
+          </label>
+          <label>项目文件夹
+            <input id="codexNewProjectPath" type="text" autocomplete="off" placeholder="例如 D:\Projects\ExampleProject" required>
+            <small>请填写已经存在的文件夹绝对路径。</small>
+          </label>
+          <details class="codex-new-project-advanced">
+            <summary>扫描设置</summary>
+            <label>扫描目录（逗号分隔）
+              <input id="codexNewProjectScanRoots" type="text" value="02-cases" placeholder="02-cases">
+            </label>
+          </details>
+          <p id="codexNewProjectMessage" class="move-asset-message" aria-live="polite">新建后会自动切换到该项目。</p>
+          <div class="automation-actions">
+            <button id="codexCreateProject" type="submit" class="primary">新建并关联</button>
+            <button type="button" data-codex-project-cancel>取消</button>
+          </div>
+        </section>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="newFolderDialog" class="automation-dialog codex-new-project-dialog new-folder-dialog">
+    <form id="newFolderForm">
+      <div class="dialog-head">
+        <div>
+          <h2>新建文件夹</h2>
+          <p id="newFolderContext">将在当前层级中创建。</p>
+        </div>
+        <button type="button" class="dialog-close" data-new-folder-cancel aria-label="关闭">×</button>
+      </div>
+      <div class="automation-content">
+        <section class="automation-section codex-new-project-fields">
+          <label>文件夹名称
+            <input id="newFolderName" type="text" autocomplete="off" maxlength="120" placeholder="例如 角色参考" required>
+            <small>创建后会自动打开这个文件夹。</small>
+          </label>
+          <p id="newFolderMessage" class="move-asset-message" aria-live="polite">名称不能包含 \ / : * ? &quot; &lt; &gt; |</p>
+          <div class="automation-actions">
+            <button id="createFolderButton" type="submit" class="primary">创建文件夹</button>
+            <button type="button" data-new-folder-cancel>取消</button>
+          </div>
+        </section>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="renameFolderDialog" class="automation-dialog codex-new-project-dialog rename-folder-dialog">
+    <form id="renameFolderForm">
+      <div class="dialog-head">
+        <div>
+          <h2>修改文件夹名称</h2>
+          <p id="renameFolderContext">修改当前文件夹的名称。</p>
+        </div>
+        <button type="button" class="dialog-close" data-rename-folder-cancel aria-label="关闭">×</button>
+      </div>
+      <div class="automation-content">
+        <section class="automation-section codex-new-project-fields">
+          <label>新名称
+            <input id="renameFolderName" type="text" autocomplete="off" maxlength="120" required>
+            <small>原名称已选中，直接输入即可替换。</small>
+          </label>
+          <p id="renameFolderMessage" class="move-asset-message" aria-live="polite">只修改文件夹名称，里面的素材保持不变。</p>
+          <div class="automation-actions">
+            <button id="confirmRenameFolder" type="submit" class="primary">保存名称</button>
+            <button type="button" data-rename-folder-cancel>取消</button>
+          </div>
+        </section>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="moveAssetDialog" class="automation-dialog move-asset-dialog">
+    <form method="dialog" class="dialog-head">
+      <div>
+        <h2>移动素材</h2>
+        <p>选择新的项目和文件夹；提示词、元数据与用户判断会一起移动。</p>
+      </div>
+      <button value="cancel" class="dialog-close" aria-label="关闭">×</button>
+    </form>
+    <div class="automation-content">
+      <section class="automation-section">
+        <div id="moveAssetSummary" class="move-asset-summary"></div>
+        <div class="form-grid">
+          <label>目标项目
+            <select id="moveTargetProject"></select>
+          </label>
+          <label>目标文件夹
+            <select id="moveTargetFolder"></select>
+          </label>
+          <label class="wide">自定义文件夹（可选，填写后优先）
+            <input id="moveCustomFolder" type="text" placeholder="例如 第一集\参考\图片">
+          </label>
+          <label id="moveTargetNameField" class="wide">文件名
+            <input id="moveTargetName" type="text">
+          </label>
+        </div>
+        <div class="automation-actions">
+          <button id="autoOrganizeMoveAsset" type="button" class="primary auto-organize-action" aria-describedby="moveAssetMessage" title="按项目结构和素材类型自动归位">自动整理</button>
+          <button id="confirmMoveAsset" type="button">移动到这里</button>
+          <button id="cancelMoveAsset" type="button">取消</button>
+        </div>
+        <p id="moveAssetMessage" class="move-asset-message">快捷键：选中素材后按 M。</p>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog id="batchDeleteDialog" class="confirm-dialog">
+    <div class="confirm-dialog-body">
+      <span class="confirm-kicker">移出素材库</span>
+      <h2 id="batchDeleteTitle">删除所选素材？</h2>
+      <p id="batchDeleteSummary">素材会先进入短时撤销区，不会从 Windows 回收站补回任何内容。</p>
+      <div class="confirm-actions">
+        <button id="confirmBatchDelete" type="button" class="danger-solid">删除</button>
+        <button id="cancelBatchDelete" type="button">取消</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="false"></div>
+
+  <dialog id="generationDialog" class="automation-dialog generation-dialog">
+    <form method="dialog" class="dialog-head">
+      <div>
+        <h2>生成任务</h2>
+        <p>先登记项目和提示词；结果出现后自动改名归档，并在旁边保存同名提示词与元数据。</p>
+      </div>
+      <button value="cancel" class="dialog-close" aria-label="关闭">×</button>
+    </form>
+
+    <div class="automation-content generation-content">
+      <section class="automation-section">
+        <div class="section-title">
+          <div>
+            <h3>登记本次生成</h3>
+            <p>Codex 生图会直接收取本地结果；TapNow 可在下载前点“等待下一个结果”。</p>
+          </div>
+        </div>
+        <div class="form-grid generation-form-grid">
+          <label>归属项目
+            <select id="generationProject"></select>
+          </label>
+          <label>常用项目位置
+            <select id="generationProfile"></select>
+          </label>
+          <label>资产类型
+            <select id="generationKind">
+              <option value="image">图片</option>
+              <option value="video">视频</option>
+            </select>
+          </label>
+          <label>生成工具
+            <select id="generationGenerator">
+              <option value="codex-image">Codex 生图</option>
+              <option value="tapnow">TapNow</option>
+              <option value="other">其他</option>
+            </select>
+          </label>
+          <label>集数
+            <input id="generationEpisode" type="text" placeholder="例如 第三集 收束">
+          </label>
+          <label>场景 / 段落
+            <input id="generationScene" type="text" placeholder="例如 场景A">
+          </label>
+          <label>镜头号
+            <input id="generationShot" type="text" placeholder="例如 09 或 S09">
+          </label>
+          <label>用途
+            <input id="generationRole" type="text" placeholder="关键帧、首帧、视频成片……">
+          </label>
+          <label>版本
+            <input id="generationVersion" type="number" min="1" value="1">
+          </label>
+          <label>模型（可选）
+            <input id="generationModel" type="text" placeholder="例如 gpt-image / Seedance">
+          </label>
+          <label class="wide">参考节奏音频（可选）
+            <select id="generationRhythmTrack">
+              <option value="">不使用参考节奏音频</option>
+            </select>
+            <small id="generationRhythmHint">选择后会把音频路径、节奏点和使用说明一起写进本次任务。</small>
+          </label>
+          <label class="wide">最终存放位置（项目内，可留空自动安排）
+            <input id="generationDestination" type="text" placeholder="例如 第三集 收束\生成视频\场景A">
+          </label>
+          <label class="wide">最终文件名（不含扩展名，可留空自动命名）
+            <input id="generationNameStem" type="text" placeholder="例如 scene_a_09_wide_v003">
+          </label>
+          <label class="wide">本次提示词
+            <textarea id="generationPrompt" placeholder="写入本次实际使用的完整提示词"></textarea>
+          </label>
+          <label class="wide">负向提示词 / 稳定性约束（可选）
+            <textarea id="generationNegative" placeholder="角色、材质、构图、连续性等不能漂移的要求"></textarea>
+          </label>
+        </div>
+        <div class="automation-actions">
+          <button id="createGenerationTicket" type="button" class="primary">只登记任务</button>
+          <button id="createAndArmGeneration" type="button">登记并等待下一个下载</button>
+        </div>
+      </section>
+
+      <section class="automation-section result-section">
+        <div class="section-title">
+          <div>
+            <h3>最近任务</h3>
+            <p id="generationSummary">正在读取</p>
+          </div>
+          <button id="refreshGenerationTickets" type="button">刷新</button>
+        </div>
+        <div id="generationTickets" class="generation-tickets">尚无生成任务。</div>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog id="rhythmControlDialog" class="automation-dialog rhythm-control-dialog">
+    <form method="dialog" class="dialog-head">
+      <div>
+        <h2>节奏控制轨</h2>
+        <p>Codex 写提示词时会按需自动生成；这里用于试听、查看记录或手动补做。</p>
+      </div>
+      <button value="cancel" class="dialog-close" aria-label="关闭">×</button>
+    </form>
+
+    <div class="automation-content rhythm-control-content">
+      <section class="automation-section">
+        <div class="section-title">
+          <div>
+            <h3>制作控制音频</h3>
+            <p id="rhythmCapability">正在检查本地音乐和音效库。</p>
+          </div>
+        </div>
+        <div class="form-grid rhythm-control-form-grid">
+          <label>归属项目
+            <select id="rhythmProject"></select>
+          </label>
+          <label>常用项目位置
+            <select id="rhythmProfile"></select>
+          </label>
+          <label>目标片长（秒）
+            <input id="rhythmDuration" type="number" min="2" max="180" step="0.1" value="8">
+          </label>
+          <label>控制方式
+            <select id="rhythmMode">
+              <option value="sfx">音效卡点（快速测试）</option>
+              <option value="hybrid">音乐底轨＋音效卡点</option>
+              <option value="music">只用音乐结构</option>
+            </select>
+          </label>
+          <label>速度（BPM）
+            <input id="rhythmBpm" type="number" min="40" max="240" value="96">
+          </label>
+          <label>调性（音乐模式）
+            <input id="rhythmKeyScale" type="text" value="D minor" placeholder="例如 D minor">
+          </label>
+          <label class="wide">控制轨名称
+            <input id="rhythmName" type="text" value="控制轨测试_8秒" placeholder="例如 第三集_巷战_控制轨_v01">
+          </label>
+          <label class="wide">存放位置（项目内，可留空自动安排）
+            <input id="rhythmDestination" type="text" placeholder="分集项目会自动放进对应集数的 参考\节奏控制轨">
+          </label>
+          <label class="wide">这段画面要发生什么
+            <textarea id="rhythmDescription" placeholder="例如：角色先压低身形，突然前冲，连续交锋后以一次重击结束。"></textarea>
+          </label>
+          <label class="wide">节奏点（每行填写：秒数 空格 画面事件）
+            <textarea id="rhythmCues">0.0 压低身形，开始蓄势
+1.2 突然前冲
+2.6 第一次兵器碰撞
+4.1 连续快速交锋
+5.8 决定性重击
+7.2 收势停住</textarea>
+          </label>
+          <label class="wide">音乐生成提示词（音乐模式，可选）
+            <textarea id="rhythmMusicPrompt" placeholder="不填会根据画面任务生成一条基础器乐控制轨。"></textarea>
+          </label>
+        </div>
+        <div class="automation-actions">
+          <button id="createRhythmTrack" type="button" class="primary">生成并用于下一任务</button>
+        </div>
+        <p id="rhythmMessage" class="move-asset-message">第一次建议先用“音效卡点”验证节奏，不必等待音乐模型。</p>
+      </section>
+
+      <section class="automation-section result-section">
+        <div class="section-title">
+          <div>
+            <h3>最近控制轨</h3>
+            <p>生成后可以直接试听，再带入“生成任务”。</p>
+          </div>
+          <button id="refreshRhythmTracks" type="button">刷新</button>
+        </div>
+        <div id="rhythmTracks" class="rhythm-tracks">尚无控制轨。</div>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog id="automationDialog" class="automation-dialog">
+    <form method="dialog" class="dialog-head">
+      <div>
+        <h2>下载收件箱</h2>
+        <p>下载完成后自动复制进项目；清理只处理已验证归档成功的原文件。</p>
+      </div>
+      <button value="cancel" class="dialog-close" aria-label="关闭">×</button>
+    </form>
+
+    <div class="automation-content">
+      <section class="automation-section">
+        <div class="section-title">
+          <div>
+            <h3>自动归档</h3>
+            <p>先完整复制并核对内容；可以选择核对成功后从下载文件夹移走原件。</p>
+          </div>
+          <label class="toggle-line"><input id="inboxEnabled" type="checkbox"> 自动运行</label>
+        </div>
+
+        <div class="form-grid">
+          <label class="wide active-project-field">当前下载项目
+            <select id="activeProfile"></select>
+            <small>通用文件名会进入当前项目；带明确关键词的文件仍会按规则自动识别。</small>
+          </label>
+          <label class="toggle-line wide"><input id="moveAfterArchive" type="checkbox"> 归档校验成功后，从下载文件夹移走原件</label>
+          <label class="wide">下载文件夹
+            <input id="inboxSourcePath" type="text" placeholder="C:\Users\你\Downloads">
+          </label>
+          <label class="legacy-route-field">目标项目
+            <select id="inboxProject"></select>
+          </label>
+          <label>检测间隔（秒）
+            <input id="inboxPollSeconds" type="number" min="5" value="15">
+          </label>
+          <label class="wide legacy-route-field">项目内基础目录
+            <div class="inline-field">
+              <input id="inboxBasePath" type="text" placeholder="例如 02-cases/当前案例；留空则从项目根目录开始">
+              <button id="useCurrentCase" type="button">使用当前案例</button>
+            </div>
+          </label>
+          <label class="legacy-route-field">图片归档到
+            <input id="routeImage" type="text" value="assets/inbox/images">
+          </label>
+          <label class="legacy-route-field">视频归档到
+            <input id="routeVideo" type="text" value="assets/inbox/videos">
+          </label>
+          <label class="legacy-route-field">音频归档到
+            <input id="routeAudio" type="text" value="assets/inbox/audio">
+          </label>
+          <label class="legacy-route-field">其他文件归档到
+            <input id="routeOther" type="text" placeholder="留空表示忽略">
+          </label>
+        </div>
+        <div class="automation-actions">
+          <button id="saveAutomation" type="button" class="primary">保存设置</button>
+          <button id="previewOrganizer" type="button">预览归档</button>
+          <button id="runOrganizer" type="button">立即归档</button>
+        </div>
+      </section>
+
+      <section class="automation-section danger-section">
+        <div class="section-title">
+          <div>
+            <h3>定期清理下载文件夹</h3>
+            <p>第一阶段移入隐藏隔离区；只有单独开启后，隔离期满才永久清空。</p>
+          </div>
+          <label class="toggle-line"><input id="cleanupEnabled" type="checkbox"> 定期执行</label>
+        </div>
+
+        <div class="safety-note">安全范围固定为：已由本工具归档、项目副本仍存在、完整内容核对一致的文件。文件夹和未登记文件永远不动。</div>
+        <div class="form-grid">
+          <label>归档后保留（天）
+            <input id="retentionDays" type="number" min="1" value="30">
+          </label>
+          <label>清理间隔（小时）
+            <input id="cleanupIntervalHours" type="number" min="1" value="24">
+          </label>
+          <label class="wide">隔离区
+            <input id="quarantinePath" type="text">
+          </label>
+          <label class="toggle-line wide"><input id="cleanupDryRun" type="checkbox" checked> 只预演，不实际移动文件</label>
+          <label class="toggle-line wide"><input id="purgeEnabled" type="checkbox"> 隔离 <input id="quarantineDays" class="inline-number" type="number" min="1" value="14"> 天后永久清空</label>
+        </div>
+        <div class="automation-actions">
+          <button id="previewCleanup" type="button">预览清理</button>
+          <button id="runCleanup" type="button" class="danger-button">执行本轮</button>
+        </div>
+      </section>
+
+      <section class="automation-section result-section">
+        <div class="section-title">
+          <div>
+            <h3>本次结果</h3>
+            <p id="automationSummary">尚未运行</p>
+          </div>
+        </div>
+        <div id="automationResult" class="automation-result">打开后可先点“预览归档”或“预览清理”。</div>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog id="promptLibraryDialog" class="automation-dialog prompt-library-dialog">
+    <form method="dialog" class="dialog-head">
+      <div>
+        <h2>灵感词库</h2>
+        <p>原文保留，拆成可复用词条，并与当前项目资产建立关联。</p>
+      </div>
+      <button value="cancel" class="dialog-close" aria-label="关闭">×</button>
+    </form>
+    <div class="prompt-library-content">
+      <section class="prompt-library-overview">
+        <div class="prompt-stat"><strong id="promptCaptureCount">0</strong><span>原始收录</span></div>
+        <div class="prompt-stat"><strong id="promptTermCount">0</strong><span>原子词</span></div>
+        <div class="prompt-stat"><strong id="promptRecipeCount">0</strong><span>组合配方</span></div>
+        <div class="prompt-stat"><strong id="promptReadyCount">0</strong><span>成品 Prompt</span></div>
+        <div class="prompt-stat is-pending"><strong id="promptPendingCount">0</strong><span>待整理</span></div>
+      </section>
+
+      <section class="prompt-library-compose">
+        <div class="prompt-compose-head">
+          <div>
+            <h3 id="promptEditorTitle">收下一条灵感</h3>
+            <p id="promptAssetLinkHint">会自动关联当前项目；选中资产后再打开，还会关联素材路径。</p>
+          </div>
+          <button id="promptCancelEdit" type="button" hidden>取消编辑</button>
+        </div>
+        <div class="prompt-compose-grid">
+          <label>内容类型
+            <select id="promptKind">
+              <option value="capture">原始收录</option>
+              <option value="term">原子词</option>
+              <option value="recipe">组合配方</option>
+              <option value="prompt">成品 Prompt</option>
+            </select>
+          </label>
+          <label>名称
+            <input id="promptTitle" type="text" placeholder="原子词可直接填写词名">
+          </label>
+          <label>浏览分类
+            <select id="promptCategory">
+              <option value="">待分类</option>
+              <option>镜头</option><option>构图</option><option>光线</option><option>色彩</option>
+              <option>成像</option><option>动作</option><option>情绪</option><option>主体</option>
+              <option>服装</option><option>场景</option><option>道具</option><option>材质</option><option>版式</option>
+            </select>
+          </label>
+          <label>视觉职责
+            <input id="promptVisualRole" type="text" placeholder="它具体改变画面的什么">
+          </label>
+          <label class="wide">标签
+            <input id="promptTags" type="text" placeholder="用逗号分隔，例如 人像, 高位机位, 青绿色">
+          </label>
+          <label id="promptRecipeTermsLabel" class="wide" hidden>配方包含的原子词
+            <select id="promptRecipeTerms" multiple size="4"></select>
+          </label>
+          <label class="wide">原文或配方内容
+            <textarea id="promptText" rows="5" placeholder="粘贴网页里选中的视觉描述，原文会完整保留。"></textarea>
+          </label>
+        </div>
+        <div class="prompt-compose-actions">
+          <span id="promptSaveMessage">原始收录默认进入待整理区。</span>
+          <button id="promptSaveItem" type="button" class="primary">保存到词库</button>
+        </div>
+      </section>
+
+      <section class="prompt-library-browser">
+        <div class="prompt-library-tools">
+          <input id="promptSearch" type="search" placeholder="搜索内容、分类、职责或标签">
+          <select id="promptKindFilter">
+            <option value="">全部层级</option>
+            <option value="capture">原始收录</option>
+            <option value="term">原子词</option>
+            <option value="recipe">组合配方</option>
+            <option value="prompt">成品 Prompt</option>
+          </select>
+          <select id="promptCategoryFilter"><option value="">全部分类</option></select>
+          <button id="promptRefresh" type="button">刷新</button>
+          <button id="promptCompile" type="button">编译可用词库</button>
+        </div>
+        <div id="promptLibraryList" class="prompt-library-list">正在读取词库。</div>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog id="threeDWorkbenchDialog" class="automation-dialog three-d-dialog">
+    <form method="dialog" class="dialog-head">
+      <div>
+        <h2>3D 重建工作台</h2>
+        <p>参考图进入分阶段建模流程，每一关都保留规格、代码、截图和返工记录。</p>
+      </div>
+      <button value="cancel" class="dialog-close" aria-label="关闭">×</button>
+    </form>
+    <div class="three-d-content">
+      <section class="three-d-overview">
+        <div class="three-d-stat"><strong id="threeDTotalCount">0</strong><span>全部任务</span></div>
+        <div class="three-d-stat"><strong id="threeDActiveCount">0</strong><span>进行中</span></div>
+        <div class="three-d-stat is-warning"><strong id="threeDAttentionCount">0</strong><span>需处理</span></div>
+        <div class="three-d-stat"><strong id="threeDCompletedCount">0</strong><span>已完成</span></div>
+        <div class="three-d-skill-state" id="threeDSkillState">正在检查 img2threejs…</div>
+      </section>
+
+      <section class="three-d-compose">
+        <div class="three-d-compose-head">
+          <div>
+            <h3>从当前资产发起重建</h3>
+            <p id="threeDAssetHint">请先选中一张参考图。</p>
+          </div>
+        </div>
+        <div class="three-d-compose-grid">
+          <label class="wide">参考图
+            <input id="threeDAssetPath" type="text" readonly placeholder="从资产详情中带入">
+          </label>
+          <label>目标名称
+            <input id="threeDTargetName" type="text" placeholder="例如 角色道具、机械护符">
+          </label>
+          <label>主体类型
+            <select id="threeDSubjectType">
+              <option value="object">物体 / 道具</option>
+              <option value="character">角色</option>
+              <option value="hybrid">混合主体</option>
+            </select>
+          </label>
+          <label>用途
+            <select id="threeDIntendedUse">
+              <option value="browser-prop">浏览器实时道具</option>
+              <option value="hero-render">英雄展示渲染</option>
+              <option value="animation-ready">可动画资产</option>
+              <option value="destructible-prop">可破坏道具</option>
+              <option value="game-object">游戏资产</option>
+            </select>
+          </label>
+          <label>复杂度
+            <select id="threeDComplexity">
+              <option value="moderate">中等 · 默认</option>
+              <option value="simple">简单</option>
+              <option value="complex">复杂</option>
+              <option value="ultra-complex">超复杂</option>
+            </select>
+          </label>
+          <label class="wide">质量要求与备注
+            <textarea id="threeDNotes" rows="3" placeholder="例如：轮廓必须准确；保留刀柄轴点；材质按参考图，不要凭记忆改色。"></textarea>
+          </label>
+        </div>
+        <div class="three-d-compose-actions">
+          <span id="threeDCreateMessage">创建后会自动完成图片探测和预规格骨架。</span>
+          <button id="threeDCreateTask" type="button" class="primary">创建 3D 重建任务</button>
+        </div>
+      </section>
+
+      <section class="three-d-browser">
+        <div class="three-d-tools">
+          <select id="threeDProjectFilter"><option value="">全部项目</option></select>
+          <button id="threeDRefresh" type="button">刷新任务</button>
+        </div>
+        <div id="threeDTaskList" class="three-d-task-list">正在读取 3D 重建任务。</div>
+      </section>
+    </div>
+  </dialog>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

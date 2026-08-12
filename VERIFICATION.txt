@@ -1,0 +1,18 @@
+Codex Workspace Enhancer · Release Verification
+
+Before publishing a release:
+
+1. Run npm ci and npm test.
+2. Run node --check for asset-console/public/app.js and asset-browser/server.js.
+3. Parse all PowerShell installers without errors.
+4. Run tools/build-release.ps1.
+5. Verify the Windows ZIP and Skill ZIP against their SHA-256 sidecars.
+6. Run the bundled Skill verifier with -BundleOnly.
+7. Confirm no runtime token, project configuration, ledger, personal path or private media is present.
+
+The full Skill package must include:
+- the frontend Windows ZIP;
+- the authenticated local AssetBrowser service;
+- AssetBrowser public UI files;
+- install, inspect, verification and rollback scripts;
+- a manifest covering every bundled runtime file.

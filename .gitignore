@@ -1,0 +1,17 @@
+.runtime/
+.release/
+.task-description.md
+.task-review.md
+node_modules/
+*.log
+*.zip
+*.sha256.txt
+*.tmp
+.api-token
+asset-browser.config.json
+.asset-download-ledger.json
+ledgers/
+codex-*-verification*.png
+codex-conversation-preview-verification.png
+skill-manager-groups.png
+.DS_Store
