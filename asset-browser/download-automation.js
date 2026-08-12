@@ -44,6 +44,7 @@ export function normalizeAutomation(raw = {}) {
   return {
     inbox: {
       enabled: Boolean(raw.inbox?.enabled),
+      capturePolicy: raw.inbox?.capturePolicy === "all-downloads" ? "all-downloads" : "ticketed-only",
       sourcePath,
       projectId: String(raw.inbox?.projectId || ""),
       basePath: String(raw.inbox?.basePath || "").trim(),
@@ -319,6 +320,19 @@ export class DownloadAutomation {
 
   async previewOrganizer(rawConfig, projects) {
     const config = normalizeAutomation(rawConfig);
+    if (config.inbox.capturePolicy !== "all-downloads") {
+      return {
+        capturePolicy: config.inbox.capturePolicy,
+        sourcePath: config.inbox.sourcePath,
+        disabledReason: "当前只接收已登记的生成任务；普通下载文件不会被扫描、复制或移动。",
+        project: null,
+        activeProfileId: config.routing.activeProfileId,
+        planned: [],
+        pending: [],
+        alreadyImported: [],
+        ignored: []
+      };
+    }
     const project = config.routing.enabled ? null : this.resolveProject(config, projects);
     const ledger = await this.readLedger();
     const { stable, pending, ignoredBefore } = await this.listInbox(config);
@@ -359,6 +373,18 @@ export class DownloadAutomation {
 
   async runOrganizer(rawConfig, projects) {
     const config = normalizeAutomation(rawConfig);
+    if (config.inbox.capturePolicy !== "all-downloads") {
+      return {
+        capturePolicy: config.inbox.capturePolicy,
+        sourcePath: config.inbox.sourcePath,
+        disabledReason: "当前只接收已登记的生成任务；普通下载文件保持原位。",
+        imported: [],
+        pending: [],
+        alreadyImported: [],
+        ignored: [],
+        failed: []
+      };
+    }
     if (config.inbox.transferMode === "move" && !config.inbox.moveApprovedAt) {
       throw new Error("自动转移尚未获得明确确认");
     }
@@ -469,6 +495,14 @@ export class DownloadAutomation {
 
   async previewCleanup(rawConfig) {
     const config = normalizeAutomation(rawConfig);
+    if (config.inbox.capturePolicy !== "all-downloads") {
+      return {
+        capturePolicy: config.inbox.capturePolicy,
+        disabledReason: "Cleanup is disabled while generated-ticket-only capture is active.",
+        candidates: [],
+        protectedItems: []
+      };
+    }
     const ledger = await this.readLedger();
     const sourceRoot = path.resolve(config.inbox.sourcePath);
     const cutoff = Date.now() - config.cleanup.retentionDays * 24 * 60 * 60 * 1000;
@@ -520,6 +554,17 @@ export class DownloadAutomation {
 
   async runCleanup(rawConfig) {
     const config = normalizeAutomation(rawConfig);
+    if (config.inbox.capturePolicy !== "all-downloads") {
+      return {
+        dryRun: config.cleanup.dryRun,
+        capturePolicy: config.inbox.capturePolicy,
+        disabledReason: "Cleanup is disabled while generated-ticket-only capture is active.",
+        quarantined: [],
+        purged: [],
+        failed: [],
+        protectedItems: []
+      };
+    }
     if (config.cleanup.dryRun) return { dryRun: true, ...await this.previewCleanup(config) };
     if (!config.cleanup.approvedAt) throw new Error("定期清理尚未获得明确启用确认");
 

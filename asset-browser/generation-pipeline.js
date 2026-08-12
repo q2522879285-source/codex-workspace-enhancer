@@ -56,6 +56,15 @@ function isTemporary(filePath) {
   return [...TEMP_EXTS].some((ext) => lower.endsWith(ext));
 }
 
+function exactDownloadName(value) {
+  const name = String(value || "").trim();
+  if (!name) return "";
+  if (name === "." || name === ".." || /[\\/]/.test(name) || path.basename(name) !== name) {
+    throw new Error("expectedName must be one exact file name without a path");
+  }
+  return name;
+}
+
 async function exists(filePath) {
   try {
     await fs.access(filePath);
@@ -388,7 +397,7 @@ export class GenerationPipeline {
     }
 
     const keyword = keywordRouting(config, input);
-    if (keyword) {
+    if (keyword?.matchedOn === "context") {
       return {
         project: keyword.project,
         profile: keyword.profile,
@@ -426,7 +435,7 @@ export class GenerationPipeline {
     for (const ticket of tickets) counts[ticket.status] = (counts[ticket.status] || 0) + 1;
     return {
       counts,
-      active: tickets.filter((ticket) => ["draft", "awaiting_download", "generated"].includes(ticket.status)),
+      active: tickets.filter((ticket) => ["draft", "awaiting_download", "claiming", "generated"].includes(ticket.status)),
       recent: tickets.slice(0, 30)
     };
   }
@@ -503,7 +512,7 @@ export class GenerationPipeline {
     });
   }
 
-  async arm(ticketId, { sourcePath = "" } = {}) {
+  async arm(ticketId, { sourcePath = "", expectedName = "" } = {}) {
     return await this.withLock(async () => {
       const registry = await this.readRegistry();
       const ticket = registry.tickets.find((item) => item.id === ticketId);
@@ -511,24 +520,34 @@ export class GenerationPipeline {
       const inboxPath = path.resolve(sourcePath);
       if (!sourcePath || !await exists(inboxPath)) throw new Error("下载文件夹不存在，无法等待下一个结果");
       const conflictingTicket = registry.tickets.find((item) => item.id !== ticket.id
-        && item.status === "awaiting_download"
+        && ["awaiting_download", "claiming"].includes(item.status)
         && item.kind === ticket.kind
         && item.inboxPath
         && path.resolve(item.inboxPath).toLowerCase() === inboxPath.toLowerCase());
       if (conflictingTicket) {
         throw new Error(`已有同类型下载任务正在等待：${conflictingTicket.id}。请先完成/取消它，或使用 TapNow 资产 ID 直接绑定。`);
       }
+      const exactName = exactDownloadName(expectedName);
       const baseline = [];
-      for (const entry of await fs.readdir(inboxPath, { withFileTypes: true })) {
-        if (!entry.isFile() || isTemporary(entry.name)) continue;
-        const fullPath = path.join(inboxPath, entry.name);
-        const stats = await fs.stat(fullPath);
-        baseline.push(`${entry.name}|${stats.size}|${stats.mtimeMs}`);
+      if (exactName) {
+        const exactPath = path.join(inboxPath, exactName);
+        try {
+          const stats = await fs.stat(exactPath);
+          if (stats.isFile() && !isTemporary(exactName)) baseline.push(`${exactName}|${stats.size}|${stats.mtimeMs}`);
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
       }
       ticket.status = "awaiting_download";
       ticket.armedAt = new Date().toISOString();
       ticket.inboxPath = inboxPath;
       ticket.inboxBaseline = baseline;
+      ticket.expectedDownloadName = exactName;
+      ticket.claimObservation = exactName ? null : {
+        state: "identity-required",
+        observedAt: ticket.armedAt,
+        message: "No exact generated file name or asset ID was supplied; automatic claiming is disabled."
+      };
       ticket.updatedAt = ticket.armedAt;
       await this.writeRegistry(registry);
       return ticket;
@@ -637,6 +656,7 @@ export class GenerationPipeline {
         ticket.status = "archived";
         ticket.updatedAt = new Date().toISOString();
         ticket.inboxBaseline = undefined;
+        ticket.claimSourcePath = undefined;
         await this.writeRegistry(registry);
         return {
           ticket,
@@ -715,6 +735,7 @@ export class GenerationPipeline {
       ticket.status = "archived";
       ticket.updatedAt = archivedAt;
       ticket.inboxBaseline = undefined;
+      ticket.claimSourcePath = undefined;
       await this.writeRegistry(registry);
       return { ticket, output, ledgerPath };
     });
@@ -724,28 +745,90 @@ export class GenerationPipeline {
     const tickets = (await this.list({ limit: 100, status: "awaiting_download" }))
       .sort((a, b) => Date.parse(a.armedAt) - Date.parse(b.armedAt));
     const claimed = [];
-    const reservedPaths = new Set();
     for (const ticket of tickets) {
       const inboxPath = ticket.inboxPath;
       if (!inboxPath || !await exists(inboxPath)) continue;
-      const baseline = new Set(ticket.inboxBaseline || []);
-      const candidates = [];
-      for (const entry of await fs.readdir(inboxPath, { withFileTypes: true })) {
-        if (!entry.isFile() || isTemporary(entry.name)) continue;
-        const fullPath = path.join(inboxPath, entry.name);
-        if (reservedPaths.has(fullPath.toLowerCase()) || assetKind(fullPath) !== ticket.kind) continue;
-        const stats = await fs.stat(fullPath);
-        const fingerprint = `${entry.name}|${stats.size}|${stats.mtimeMs}`;
-        if (baseline.has(fingerprint)) continue;
-        if (stats.mtimeMs < Date.parse(ticket.armedAt) - 2000) continue;
-        if (Date.now() - stats.mtimeMs < Math.max(1, settleSeconds) * 1000) continue;
-        candidates.push({ fullPath, mtimeMs: stats.mtimeMs });
+
+      let expectedName = "";
+      try {
+        expectedName = exactDownloadName(ticket.expectedDownloadName);
+      } catch {
+        expectedName = "";
       }
-      candidates.sort((a, b) => a.mtimeMs - b.mtimeMs);
-      const candidate = candidates[0];
-      if (!candidate) continue;
-      reservedPaths.add(candidate.fullPath.toLowerCase());
-      claimed.push(await this.attach(ticket.id, { sourcePath: candidate.fullPath, moveSource: true }, config));
+      if (!expectedName) {
+        await this.withLock(async () => {
+          const registry = await this.readRegistry();
+          const current = registry.tickets.find((item) => item.id === ticket.id);
+          if (!current || current.status !== "awaiting_download") return;
+          if (current.claimObservation?.state === "identity-required") return;
+          current.claimObservation = {
+            state: "identity-required",
+            observedAt: new Date().toISOString(),
+            message: "No exact generated file name or asset ID was supplied; automatic claiming is disabled."
+          };
+          current.updatedAt = current.claimObservation.observedAt;
+          await this.writeRegistry(registry);
+        });
+        continue;
+      }
+
+      const candidatePath = path.join(inboxPath, expectedName);
+      if (assetKind(candidatePath) !== ticket.kind || isTemporary(expectedName)) continue;
+      let stats;
+      try {
+        stats = await fs.stat(candidatePath);
+      } catch (error) {
+        if (error.code === "ENOENT") continue;
+        throw error;
+      }
+      if (!stats.isFile()) continue;
+      const fingerprint = `${expectedName}|${stats.size}|${stats.mtimeMs}`;
+      if (new Set(ticket.inboxBaseline || []).has(fingerprint)) continue;
+      if (stats.mtimeMs < Date.parse(ticket.armedAt) - 2000) continue;
+      if (Date.now() - stats.mtimeMs < Math.max(1, settleSeconds) * 1000) continue;
+
+      const normalizedCandidate = path.resolve(candidatePath).toLowerCase();
+      const reserved = await this.withLock(async () => {
+        const registry = await this.readRegistry();
+        const current = registry.tickets.find((item) => item.id === ticket.id);
+        if (!current || current.status !== "awaiting_download") return false;
+        let currentName = "";
+        try {
+          currentName = exactDownloadName(current.expectedDownloadName);
+        } catch {
+          return false;
+        }
+        const currentPath = path.resolve(current.inboxPath || "", currentName).toLowerCase();
+        if (currentPath !== normalizedCandidate) return false;
+        current.status = "claiming";
+        current.claimSourcePath = path.resolve(candidatePath);
+        current.updatedAt = new Date().toISOString();
+        await this.writeRegistry(registry);
+        return true;
+      });
+      if (!reserved) continue;
+
+      try {
+        claimed.push(await this.attach(ticket.id, {
+          sourcePath: candidatePath,
+          moveSource: config.automation?.inbox?.transferMode === "move"
+        }, config));
+      } catch (error) {
+        await this.withLock(async () => {
+          const registry = await this.readRegistry();
+          const current = registry.tickets.find((item) => item.id === ticket.id);
+          if (!current || current.status !== "claiming" || String(current.claimSourcePath || "").toLowerCase() !== normalizedCandidate) return;
+          current.status = "awaiting_download";
+          current.claimSourcePath = undefined;
+          current.claimObservation = {
+            state: "claim-failed",
+            observedAt: new Date().toISOString(),
+            message: error.message || String(error)
+          };
+          current.updatedAt = current.claimObservation.observedAt;
+          await this.writeRegistry(registry);
+        });
+      }
     }
     return claimed;
   }

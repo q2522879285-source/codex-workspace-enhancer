@@ -136,7 +136,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $sourceDir $file) -Destination $stagingDir -Force
   }
 
-  $sourceRef = "v1.0.0"
+  $sourceRef = "v1.0.1"
   $manifest = [ordered]@{
     name = "Codex Sidebar Enhancer"
     source = "https://github.com/q2522879285-source/codex-workspace-enhancer"

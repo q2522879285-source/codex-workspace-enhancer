@@ -584,8 +584,8 @@
   <dialog id="automationDialog" class="automation-dialog">
     <form method="dialog" class="dialog-head">
       <div>
-        <h2>下载收件箱</h2>
-        <p>下载完成后自动复制进项目；清理只处理已验证归档成功的原文件。</p>
+        <h2>生成结果收件箱</h2>
+        <p>只接住已登记的生图和视频任务；普通下载不会被扫描、复制或移动。</p>
       </div>
       <button value="cancel" class="dialog-close" aria-label="关闭">×</button>
     </form>
@@ -594,18 +594,18 @@
       <section class="automation-section">
         <div class="section-title">
           <div>
-            <h3>自动归档</h3>
-            <p>先完整复制并核对内容；可以选择核对成功后从下载文件夹移走原件。</p>
+            <h3>生成任务自动归档</h3>
+            <p>任务已关联项目就直接归档；无法确认归属的生成结果才进入“待确认”。</p>
           </div>
-          <label class="toggle-line"><input id="inboxEnabled" type="checkbox"> 自动运行</label>
+          <label class="toggle-line"><input id="inboxEnabled" type="checkbox"> 监听已登记任务</label>
         </div>
 
         <div class="form-grid">
-          <label class="wide active-project-field">当前下载项目
+          <label class="wide active-project-field">旧版全量下载项目
             <select id="activeProfile"></select>
-            <small>通用文件名会进入当前项目；带明确关键词的文件仍会按规则自动识别。</small>
+            <small>仅兼容旧配置；生成任务不会使用这里作为兜底。</small>
           </label>
-          <label class="toggle-line wide"><input id="moveAfterArchive" type="checkbox"> 归档校验成功后，从下载文件夹移走原件</label>
+          <label class="toggle-line wide"><input id="moveAfterArchive" type="checkbox"> 生成结果归档校验成功后，从下载文件夹移走原件</label>
           <label class="wide">下载文件夹
             <input id="inboxSourcePath" type="text" placeholder="C:\Users\你\Downloads">
           </label>

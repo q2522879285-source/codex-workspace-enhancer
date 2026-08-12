@@ -1054,10 +1054,16 @@ function renderAutomationForm() {
   const automation = state.automation;
   if (!automation || !els.inboxSourcePath) return;
   const inbox = automation.inbox || {};
+  const ticketedOnly = inbox.capturePolicy !== "all-downloads";
   const cleanup = automation.cleanup || {};
   document.querySelectorAll(".legacy-route-field").forEach((element) => {
     element.hidden = Boolean(automation.routing?.enabled);
   });
+  document.querySelectorAll(".active-project-field").forEach((element) => {
+    element.hidden = ticketedOnly;
+  });
+  els.previewOrganizer.hidden = ticketedOnly;
+  els.runOrganizer.hidden = ticketedOnly;
   els.inboxEnabled.checked = Boolean(inbox.enabled);
   els.moveAfterArchive.checked = inbox.transferMode === "move";
   renderAutomationProfiles();
@@ -1088,7 +1094,7 @@ function renderAutomationProfiles() {
     option.textContent = "未启用多项目分流";
     els.activeProfile.append(option);
     els.activeProfile.disabled = true;
-    els.automationButton.textContent = "下载收件箱";
+    els.automationButton.textContent = "生成收件箱";
     return;
   }
   els.activeProfile.disabled = false;
@@ -1100,7 +1106,7 @@ function renderAutomationProfiles() {
   }
   els.activeProfile.value = routing.activeProfileId;
   const active = routing.profiles.find((profile) => profile.id === routing.activeProfileId);
-  els.automationButton.textContent = active ? `收件箱 · ${active.name}` : "下载收件箱";
+  els.automationButton.textContent = "生成收件箱";
 }
 
 function numericValue(element, fallback) {
@@ -1112,6 +1118,7 @@ function collectAutomationForm() {
   return {
     inbox: {
       enabled: els.inboxEnabled.checked,
+      capturePolicy: state.automation?.inbox?.capturePolicy || "ticketed-only",
       sourcePath: els.inboxSourcePath.value.trim(),
       projectId: els.inboxProject.value,
       basePath: els.inboxBasePath.value.trim(),
@@ -1196,9 +1203,14 @@ function showAutomationResult(title, data) {
   const total = groups.reduce((sum, [key]) => sum + data[key].length, 0);
   els.automationSummary.textContent = `${title} · ${groups.map(([key, label]) => `${label} ${data[key].length}`).join(" / ")}`;
   els.automationResult.innerHTML = "";
+  if (data.disabledReason) {
+    const note = document.createElement("p");
+    note.textContent = data.disabledReason;
+    els.automationResult.append(note);
+  }
   if (!total) {
     const empty = document.createElement("p");
-    empty.textContent = "没有需要处理的文件。";
+    empty.textContent = data.disabledReason ? "没有已登记的生成结果需要处理。" : "没有需要处理的文件。";
     els.automationResult.append(empty);
     return;
   }
@@ -4931,7 +4943,7 @@ function wireFilters() {
       });
       state.automation = data.automation;
       renderAutomationForm();
-      showAutomationMessage("当前项目已切换", `后续通用文件将自动进入“${data.profile.name}”。`);
+      showAutomationMessage("当前项目已切换", `仅旧版全量下载整理会使用“${data.profile.name}”；生成任务仍按当前任务自动匹配。`);
     } catch (error) {
       showAutomationMessage("切换失败", error.message, true);
     }

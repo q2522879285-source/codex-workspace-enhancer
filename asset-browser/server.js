@@ -1349,14 +1349,20 @@ async function checkAutomationSchedule() {
   automationBusy = true;
   try {
     const config = await loadConfig();
-    const generationClaims = await generationPipeline.claimArmedDownloads(config, {
-      settleSeconds: Math.min(6, Math.max(2, config.automation.inbox.settleSeconds || 4))
-    });
-    if (generationClaims.length) notifyClients("generation-change");
+    if (config.automation.inbox.enabled) {
+      const generationClaims = await generationPipeline.claimArmedDownloads(config, {
+        settleSeconds: Math.min(6, Math.max(2, config.automation.inbox.settleSeconds || 4))
+      });
+      if (generationClaims.length) notifyClients("generation-change");
+    }
     const ledger = await downloadAutomation.readLedger();
     const now = Date.now();
     const organizerDue = !ledger.lastOrganizerRunAt || now - Date.parse(ledger.lastOrganizerRunAt) >= config.automation.inbox.pollSeconds * 1000;
-    if (config.automation.inbox.enabled && organizerDue) {
+    if (
+      config.automation.inbox.enabled
+      && config.automation.inbox.capturePolicy === "all-downloads"
+      && organizerDue
+    ) {
       const result = await downloadAutomation.runOrganizer(config.automation, config.projects);
       if (result.imported.length) notifyClients("automation-change");
     }
@@ -1364,6 +1370,7 @@ async function checkAutomationSchedule() {
     const latestLedger = await downloadAutomation.readLedger();
     const cleanupDue = !latestLedger.lastCleanupRunAt || now - Date.parse(latestLedger.lastCleanupRunAt) >= config.automation.cleanup.intervalHours * 60 * 60 * 1000;
     if (
+      config.automation.inbox.capturePolicy === "all-downloads" &&
       config.automation.cleanup.enabled &&
       !config.automation.cleanup.dryRun &&
       config.automation.cleanup.approvedAt &&
@@ -1710,7 +1717,8 @@ const server = createServer(async (req, res) => {
       let result;
       if (action === "arm") {
         result = await generationPipeline.arm(ticketId, {
-          sourcePath: body.sourcePath || config.automation.inbox.sourcePath
+          sourcePath: body.sourcePath || config.automation.inbox.sourcePath,
+          expectedName: body.expectedName || ""
         });
       } else if (action === "generated") {
         result = await generationPipeline.markGenerated(ticketId, body);

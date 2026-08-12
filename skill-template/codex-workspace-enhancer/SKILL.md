@@ -24,6 +24,8 @@ Turn Codex into a continuous task-and-asset workspace without replacing its nati
 - Open Asset Console inside the current Codex task. Do not launch a second visible app window.
 - Refresh the embedded task context when the active task changes; invalidate the old iframe/session.
 - Return selected assets to the current composer as absolute local paths only. Never submit or send automatically.
+- Route registered generated images and videos by their originating task/project; unresolved generated media may enter Pending Review, but ordinary Downloads must remain untouched.
+- Require a direct asset ID, exact filename, or direct file attachment before claiming a browser download. Never guess ownership from the next same-kind file.
 - Support folder navigation, create, rename, move, undo, and project-level automatic organization.
 - Keep destructive actions secondary and explicit. "Discard" must not imply deleting source files.
 - Use bounded caches, lazy media loading, request generations, reduced-motion-safe busy states, and stale-response guards.
