@@ -47,7 +47,8 @@ fi
 [[ -x "${NODE_PATH}" ]] || fail "Node.js 22+ was not found; install Node.js or the Codex desktop app first"
 
 NODE_MAJOR="$(${NODE_PATH} -p 'Number(process.versions.node.split(".")[0])')"
-[[ "${NODE_MAJOR}" -ge 22 ]] || fail "Node.js 22 or newer is required"
+NODE_MINOR="$("${NODE_PATH}" -p 'Number(process.versions.node.split(".")[1])')"
+[[ "${NODE_MAJOR}" -gt 22 || ( "${NODE_MAJOR}" -eq 22 && "${NODE_MINOR}" -ge 13 ) ]] || fail "Node.js 22.13 or newer is required"
 
 if [[ -z "${SOURCE_DIR}" ]]; then
   TEMP_DIR="$(mktemp -d)"
@@ -70,6 +71,10 @@ mkdir -p "${STAGING_DIR}"
   --exclude 'node_modules' \
   --exclude '*.png' \
   "${SOURCE_DIR}/" "${STAGING_DIR}/"
+
+if [[ -f "${INSTALL_DIR}/enhancer.config.json" ]]; then
+  cp "${INSTALL_DIR}/enhancer.config.json" "${STAGING_DIR}/enhancer.config.json"
+fi
 
 if [[ -e "${INSTALL_DIR}" ]]; then
   mv "${INSTALL_DIR}" "${BACKUP_DIR}"

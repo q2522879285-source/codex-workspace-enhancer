@@ -27,7 +27,12 @@
   const SECTION_NAMES = ["置顶", "项目", "最近"];
   const FOLDER_SWITCHER_ID = "codex-sidebar-folder-switcher";
   const FOLDER_STORAGE_KEY = "codex-conversation-preview:folder-id";
+  const THREAD_OVERVIEW_RAIL_ID = "codex-thread-overview-rail";
+  const COMPANY_WORKBENCH_MODE_ATTR = "data-codex-company-workbench";
+  const COMPANY_OPERATIONS_WORKSTREAMS = new Set(["community", "mail", "notifications", "ambassadors", "home"]);
   const VIEW_STORAGE_KEY = "codex-conversation-preview:view-mode";
+  const TASK_VIEW_STORAGE_KEY = "codex-conversation-preview:task-view-mode";
+  const OVERVIEW_COLLAPSED_KEY = "codex-conversation-preview:overview-collapsed";
   const HOME_PROJECT_SHELF_ID = "codex-home-project-shelf";
   const HOME_PROJECT_STATE_KEY = "codex-conversation-preview:home-projects-state";
   const SUMMARY_CLASS = "codex-conversation-core-summary";
@@ -60,6 +65,8 @@
   };
   let layoutAnchored = false;
   let viewMode = "card";
+  let taskViewMode = "card";
+  let overviewCollapsed = true;
   let activeSectionTab = null;
   let activeFolderId = null;
   let folderSearchQuery = "";
@@ -69,6 +76,11 @@
   let searchCatalogByProject = new Map();
   let folderSearchExpansionPending = null;
   let folderSearchRevealKey = "";
+  let threadOverview = null;
+  let taskRailTab = "context";
+  let taskSkillCatalog = null;
+  let taskSkillCatalogKey = "";
+  let taskSkillRequestCleanup = null;
   let homeProjects = {
     available: true,
     cards: [],
@@ -77,10 +89,16 @@
   let homeProjectsState = null;
   let assetConsole = {
     available: false,
+    assetAvailable: false,
+    operationsAvailable: false,
     label: "资产控制台",
     mode: "embedded",
   };
   let assetConsoleReturnFocus = null;
+  let companyOperationsWorkstream = "";
+  let operationsFrameReady = false;
+  let operationsFrameNonce = "";
+  let operationsPendingMessage = null;
   let skillOrganizerSource = null;
   let skillOrganizerCatalog = [];
   let skillOrganizerFilter = "常用";
@@ -90,12 +108,10 @@
   let skillOrganizerRenderSignature = "";
   let skillOrganizerFavorites = null;
   let skillOrganizerExpandedGroups = new Set();
-  const SKILL_DESCRIPTION_OVERRIDES = new Map([
-    ["AI Video Prompt Director", "统筹 AI 视频创意、分镜、提示词与生成证据。"],
-    ["AI Video Prompt Preflight", "生成前检查连续性、动作物理、声音与可执行性。"],
-    ["Codex Workspace Enhancer", "优化任务侧栏，并把本机资产工作台接入 Codex。"],
-  ]);
+  const SKILL_DESCRIPTION_OVERRIDES = new Map();
   try { viewMode = localStorage.getItem(VIEW_STORAGE_KEY) === "list" ? "list" : "card"; } catch {}
+  try { taskViewMode = localStorage.getItem(TASK_VIEW_STORAGE_KEY) === "list" ? "list" : "card"; } catch {}
+  try { overviewCollapsed = localStorage.getItem(OVERVIEW_COLLAPSED_KEY) !== "false"; } catch {}
   try {
     const savedSectionTab = localStorage.getItem(SECTION_TAB_STORAGE_KEY);
     if (SECTION_NAMES.includes(savedSectionTab)) activeSectionTab = savedSectionTab;
@@ -292,6 +308,66 @@
         position: relative;
         min-width: 0;
       }
+      #${SHORTCUT_GRID_ID}[data-codex-shortcut-compact="true"] [data-codex-shortcut-more] {
+        min-width: 0;
+      }
+      #${SHORTCUT_GRID_ID} [data-codex-shortcut-more] > summary {
+        display: flex;
+        width: 30px;
+        height: 32px;
+        align-items: center;
+        justify-content: center;
+        list-style: none;
+        border-radius: 6px;
+        color: var(--color-token-description-foreground, currentColor);
+        font-size: 20px;
+        cursor: pointer;
+      }
+      #${SHORTCUT_GRID_ID} [data-codex-shortcut-more] > summary::-webkit-details-marker { display: none; }
+      #${SHORTCUT_GRID_ID} [data-codex-shortcut-more] > summary:hover {
+        background: color-mix(in srgb, currentColor 6%, transparent);
+      }
+      #${SHORTCUT_GRID_ID} [data-codex-shortcut-more] > summary:focus-visible {
+        outline: 2px solid var(--color-token-accent-foreground, Highlight);
+        outline-offset: 1px;
+      }
+      #${SHORTCUT_GRID_ID} [data-codex-shortcut-more-items] {
+        display: grid;
+        position: absolute;
+        z-index: 30;
+        top: calc(100% + 4px);
+        right: var(--padding-row-x, 8px);
+        width: min(190px, calc(100% - 16px));
+        grid-template-columns: minmax(0, 1fr);
+        gap: 2px;
+        padding: 5px;
+        box-sizing: border-box;
+        border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+        border-radius: 9px;
+        background: var(--color-token-sidebar-surface-primary, var(--color-token-main-surface-primary, Canvas));
+        box-shadow: 0 8px 22px color-mix(in srgb, black 18%, transparent);
+        max-height: min(220px, 35vh);
+        overflow: auto;
+      }
+      #${SHORTCUT_GRID_ID} [data-codex-shortcut-more-items] > div {
+        position: relative;
+        min-width: 0;
+      }
+      #${SHORTCUT_GRID_ID} [data-codex-shortcut-more-items] .${SHORTCUT_CARD_CLASS} {
+        height: 36px;
+        flex-direction: row;
+        justify-content: flex-start;
+        gap: 6px;
+        padding: 5px 8px;
+        border-radius: 8px;
+        box-shadow: none;
+      }
+      #${SHORTCUT_GRID_ID} [data-codex-shortcut-more-items] .${SHORTCUT_ICON_CLASS} {
+        flex-basis: 20px;
+        width: 20px;
+        height: 20px;
+        background: none;
+      }
       #${SHORTCUT_GRID_ID} .${SHORTCUT_CARD_CLASS} {
         display: flex;
         position: relative;
@@ -346,6 +422,10 @@
         background: color-mix(in srgb, #2f95ff 14%, transparent);
         color: #4aa4ff;
       }
+      #${SHORTCUT_GRID_ID} [data-codex-sidebar-shortcut-name="专项运营"] .${SHORTCUT_ICON_CLASS} {
+        background: color-mix(in srgb, #21a66f 15%, transparent);
+        color: #4fd49a;
+      }
       #${SHORTCUT_GRID_ID} [data-codex-sidebar-shortcut-name="资产控制台"][data-active="true"] {
         border-color: color-mix(in srgb, #2f95ff 38%, transparent);
         background: color-mix(in srgb, #2f95ff 15%, var(--color-token-main-surface-secondary, #151515));
@@ -355,6 +435,16 @@
       }
       #${SHORTCUT_GRID_ID} [data-codex-sidebar-shortcut-name="资产控制台"][data-active="true"] .${SHORTCUT_LABEL_CLASS} {
         color: #8bc5ff;
+      }
+      #${SHORTCUT_GRID_ID} [data-codex-sidebar-shortcut-name="专项运营"][data-active="true"] {
+        border-color: color-mix(in srgb, #21a66f 38%, transparent);
+        background: color-mix(in srgb, #21a66f 14%, var(--color-token-main-surface-secondary, #151515));
+        color: #65dbaa;
+        box-shadow: inset 0 1px 0 color-mix(in srgb, #b9ffe0 17%, transparent), 0 5px 14px color-mix(in srgb, black 10%, transparent);
+        transform: none;
+      }
+      #${SHORTCUT_GRID_ID} [data-codex-sidebar-shortcut-name="专项运营"][data-active="true"] .${SHORTCUT_LABEL_CLASS} {
+        color: #83e5bc;
       }
       #${ASSET_CONSOLE_PANEL_ID} {
         display: grid;
@@ -369,6 +459,31 @@
         background: var(--color-token-main-surface-primary, #101010);
         color: var(--color-token-text-primary, #f5f5f5);
         box-shadow: -14px 0 36px color-mix(in srgb, black 18%, transparent);
+      }
+      #${ASSET_CONSOLE_PANEL_ID}[data-docked="true"] {
+        position: relative;
+        z-index: auto;
+        inset: auto;
+        width: 100%;
+        min-width: 0;
+        height: auto;
+        min-height: 0;
+        flex: 1 1 auto;
+        border-left: 0;
+        box-shadow: none;
+      }
+      #${ASSET_CONSOLE_PANEL_ID}[data-docked="true"][data-console-kind="operations"] {
+        grid-template-rows: 42px minmax(0, 1fr);
+        background: var(--color-token-main-surface-primary, #151515);
+      }
+      #${ASSET_CONSOLE_PANEL_ID}[hidden] {
+        display: none;
+      }
+      #${ASSET_CONSOLE_PANEL_ID}[data-docked="true"] [data-codex-asset-console-close] {
+        display: inline-flex;
+      }
+      #${ASSET_CONSOLE_PANEL_ID}[data-docked="true"] .codex-asset-console-body {
+        overflow: auto;
       }
       #${ASSET_CONSOLE_PANEL_ID} .codex-asset-console-header {
         display: flex;
@@ -427,6 +542,24 @@
         outline: 2px solid var(--color-token-accent-foreground, Highlight);
         outline-offset: 1px;
       }
+      #${ASSET_CONSOLE_PANEL_ID}[data-console-kind="operations"] .codex-asset-console-header {
+        gap: 7px;
+        padding: 0 8px 0 10px;
+        background: var(--color-token-main-surface-secondary, #191919);
+      }
+      #${ASSET_CONSOLE_PANEL_ID}[data-console-kind="operations"] .codex-asset-console-title {
+        font-size: 12px;
+        font-weight: 680;
+      }
+      #${ASSET_CONSOLE_PANEL_ID}[data-console-kind="operations"] .codex-asset-console-local {
+        font-size: 9px;
+      }
+      #${ASSET_CONSOLE_PANEL_ID}[data-console-kind="operations"] .codex-asset-console-action {
+        width: 27px;
+        height: 27px;
+        flex-basis: 27px;
+        border-radius: 6px;
+      }
       #${ASSET_CONSOLE_PANEL_ID} .codex-asset-console-body {
         display: grid;
         position: relative;
@@ -435,6 +568,10 @@
         place-items: center;
         overflow: hidden;
         background: #0b0d0e;
+      }
+      #${ASSET_CONSOLE_PANEL_ID}[data-console-kind="operations"] .codex-asset-console-body,
+      #${ASSET_CONSOLE_PANEL_ID}[data-console-kind="operations"] #${ASSET_CONSOLE_FRAME_ID} {
+        background: var(--color-token-main-surface-primary, #151515);
       }
       #${ASSET_CONSOLE_PANEL_ID} .codex-asset-console-state {
         display: grid;
@@ -454,6 +591,9 @@
         border-top-color: #4aa4ff;
         border-radius: 50%;
         animation: codex-asset-console-spin 800ms linear infinite;
+      }
+      #${ASSET_CONSOLE_PANEL_ID}[data-console-kind="operations"] .codex-asset-console-spinner {
+        border-top-color: #36b982;
       }
       #${ASSET_CONSOLE_PANEL_ID}[data-state="error"] .codex-asset-console-spinner {
         display: none;
@@ -840,6 +980,430 @@
       }
       #${FOLDER_SWITCHER_ID} [data-codex-sidebar-folder-expand][aria-expanded="true"] svg {
         transform: rotate(180deg);
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} {
+        display: flex;
+        width: clamp(248px, 22vw, 300px);
+        min-width: 0;
+        height: 100%;
+        min-height: 0;
+        flex: 0 0 clamp(248px, 22vw, 300px);
+        flex-direction: column;
+        box-sizing: border-box;
+        overflow: hidden;
+        border-left: 0.5px solid color-mix(in srgb, currentColor 10%, transparent);
+        background: color-mix(in srgb, var(--color-token-main-surface-secondary, Canvas) 92%, transparent);
+        color: var(--color-token-text-primary, currentColor);
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} {
+        width: 50%;
+        flex-basis: 50%;
+        border-left-color: color-mix(in srgb, #21a66f 16%, currentColor 7%);
+        background: color-mix(in srgb, var(--color-token-main-surface-secondary, Canvas) 94%, transparent);
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} [data-codex-company-master-view] {
+        display: flex;
+        min-height: 0;
+        flex: 1;
+        flex-direction: column;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-company-master-view] {
+        min-height: 0;
+        max-height: none;
+        flex: 1 1 auto;
+        border-bottom: 0.5px solid color-mix(in srgb, currentColor 10%, transparent);
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-launcher {
+        display: none;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-launcher {
+        display: grid;
+        min-height: 80px;
+        flex: 0 0 80px;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        align-items: stretch;
+        gap: 6px;
+        box-sizing: border-box;
+        padding: 10px;
+        border-top: 0.5px solid color-mix(in srgb, currentColor 10%, transparent);
+        background: color-mix(in srgb, var(--color-token-main-surface-primary, Canvas) 68%, transparent);
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-launcher button {
+        min-width: 0;
+        padding: 6px 5px;
+        border: 0.5px solid color-mix(in srgb, #21a66f 24%, currentColor 7%);
+        border-radius: 9px;
+        background: color-mix(in srgb, #21a66f 7%, transparent);
+        color: inherit;
+        font: inherit;
+        font-size: 10px;
+        font-weight: 650;
+        line-height: 14px;
+        cursor: pointer;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-launcher button:hover,
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-launcher button[aria-pressed="true"] {
+        border-color: color-mix(in srgb, #21a66f 48%, currentColor 7%);
+        background: color-mix(in srgb, #21a66f 15%, transparent);
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-launcher button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] [data-app-action-timeline-scroll] {
+        background: color-mix(in srgb, #21a66f 2%, var(--color-token-main-surface-primary, #181818));
+        box-shadow: inset -1px 0 0 color-mix(in srgb, currentColor 7%, transparent);
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] [data-user-message-bubble="true"] {
+        border: 0.5px solid color-mix(in srgb, #21a66f 18%, currentColor 8%);
+        border-radius: 14px;
+        background: color-mix(in srgb, #21a66f 6%, var(--color-token-main-surface-primary, #181818));
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] [data-codex-composer-root][data-composer-placement="thread"] [data-composer-surface-variant] {
+        border-radius: 16px !important;
+        background: color-mix(in srgb, #21a66f 3%, var(--color-token-main-surface-primary, #181818)) !important;
+        box-shadow:
+          inset 0 0 0 0.5px color-mix(in srgb, #21a66f 18%, currentColor 8%),
+          0 10px 30px color-mix(in srgb, black 18%, transparent) !important;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-header {
+        display: flex;
+        min-height: 48px;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px;
+        border-bottom: 0.5px solid color-mix(in srgb, currentColor 8%, transparent);
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-mark {
+        width: 7px;
+        height: 7px;
+        flex: 0 0 7px;
+        border-radius: 50%;
+        background: #21a66f;
+        box-shadow: 0 0 0 4px color-mix(in srgb, #21a66f 12%, transparent);
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} h2 {
+        min-width: 0;
+        flex: 1;
+        margin: 0;
+        font-size: 12px;
+        font-weight: 680;
+        line-height: 18px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-overview-status] {
+        flex: 0 0 auto;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: color-mix(in srgb, currentColor 7%, transparent);
+        color: var(--color-token-description-foreground, currentColor);
+        font-size: 9px;
+        line-height: 14px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-overview-status][data-running="true"] {
+        background: color-mix(in srgb, #21a66f 13%, transparent);
+        color: color-mix(in srgb, #21a66f 78%, currentColor);
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-body {
+        display: flex;
+        min-height: 0;
+        flex: 1;
+        flex-direction: column;
+        gap: 10px;
+        padding: 13px;
+        overflow: auto;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-title {
+        margin: 0 1px 2px;
+        overflow-wrap: anywhere;
+        font-size: 14px;
+        font-weight: 680;
+        line-height: 20px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-card {
+        padding: 11px;
+        border: 0.5px solid color-mix(in srgb, currentColor 8%, transparent);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--color-token-main-surface-primary, Canvas) 72%, transparent);
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-card[data-kind="next"] {
+        border-color: color-mix(in srgb, #21a66f 24%, currentColor 6%);
+        background: color-mix(in srgb, #21a66f 6%, var(--color-token-main-surface-primary, Canvas));
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-master-only] {
+        display: none;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-master-only] {
+        display: block;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-default-summary] {
+        display: none;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-current {
+        border-color: color-mix(in srgb, #21a66f 22%, currentColor 6%);
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-current[data-empty="true"] {
+        border-style: dashed;
+        color: var(--color-token-description-foreground, color-mix(in srgb, currentColor 58%, transparent));
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-work-title {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin: 0 0 8px;
+        font-size: 13px;
+        font-weight: 680;
+        line-height: 19px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-priority {
+        flex: 0 0 auto;
+        padding: 1px 5px;
+        border-radius: 999px;
+        background: color-mix(in srgb, currentColor 8%, transparent);
+        color: var(--color-token-description-foreground, currentColor);
+        font-size: 9px;
+        line-height: 14px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-field + .codex-thread-master-field {
+        margin-top: 5px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-field strong {
+        margin-right: 5px;
+        color: #21a66f;
+        font-size: 10px;
+        font-weight: 680;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-time-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-time-list li {
+        display: grid;
+        grid-template-columns: 6px minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-time-list li::before {
+        width: 6px;
+        height: 6px;
+        margin-top: 5px;
+        border-radius: 50%;
+        background: #d49a2f;
+        content: "";
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-time-title {
+        display: block;
+        font-size: 11px;
+        font-weight: 650;
+        line-height: 16px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-time-detail {
+        display: block;
+        margin-top: 1px;
+        color: var(--color-token-description-foreground, color-mix(in srgb, currentColor 58%, transparent));
+        font-size: 10px;
+        line-height: 15px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-summary {
+        border-top: 0.5px solid color-mix(in srgb, currentColor 8%, transparent);
+        color: var(--color-token-description-foreground, currentColor);
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-summary summary {
+        padding: 9px 1px 4px;
+        cursor: pointer;
+        font-size: 10px;
+        font-weight: 650;
+        list-style-position: inside;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-summary p {
+        margin: 5px 1px 0;
+        font-size: 10px;
+        line-height: 16px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-label {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--color-token-description-foreground, color-mix(in srgb, currentColor 58%, transparent));
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        line-height: 14px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-card p {
+        margin: 0;
+        overflow-wrap: anywhere;
+        font-size: 11px;
+        line-height: 17px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-overview-meta] {
+        color: var(--color-token-description-foreground, color-mix(in srgb, currentColor 56%, transparent));
+        font-size: 9px;
+        line-height: 14px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-add-memo] {
+        min-height: 34px;
+        margin: 0 13px 13px;
+        padding: 0 11px;
+        border: 0;
+        border-radius: 9px;
+        background: #168b5a;
+        color: white;
+        font-size: 11px;
+        font-weight: 650;
+        cursor: pointer;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} {
+        border-left-color: color-mix(in srgb, currentColor 8%, transparent);
+        background: var(--color-token-main-surface-secondary, Canvas);
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-company-master-view] {
+        border-bottom-color: color-mix(in srgb, currentColor 8%, transparent);
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-header,
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-title,
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-summary,
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-overview-meta] {
+        display: none;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-body {
+        gap: 16px;
+        padding: 16px 14px 12px;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-card {
+        padding: 0 0 14px;
+        border: 0;
+        border-bottom: 0.5px solid color-mix(in srgb, currentColor 8%, transparent);
+        border-radius: 0;
+        background: transparent;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-current > .codex-thread-overview-label {
+        font-size: 0;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-current > .codex-thread-overview-label::after {
+        content: "当前任务";
+        font-size: 9px;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-master-current-content] > p:nth-child(2) {
+        display: none;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-work-title {
+        margin-bottom: 10px;
+        font-size: 13px;
+        line-height: 19px;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-master-field strong {
+        color: color-mix(in srgb, #21a66f 76%, currentColor);
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-add-memo] {
+        width: fit-content;
+        min-height: 28px;
+        align-self: flex-start;
+        margin: 0 14px 12px;
+        padding: 0 9px;
+        border: 0.5px solid color-mix(in srgb, currentColor 12%, transparent);
+        border-radius: 7px;
+        background: transparent;
+        color: var(--color-token-description-foreground, currentColor);
+        font-size: 10px;
+        font-weight: 600;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-launcher {
+        display: flex;
+        min-height: 62px;
+        flex: 0 0 62px;
+        align-items: center;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border-top-color: color-mix(in srgb, currentColor 8%, transparent);
+        background: var(--color-token-main-surface-primary, #171717);
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-launcher button {
+        display: none;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-launcher [data-codex-company-workstream="home"] {
+        display: inline-flex;
+        width: 100%;
+        min-height: 44px;
+        align-items: center;
+        gap: 9px;
+        justify-content: flex-start;
+        padding: 5px 9px 5px 6px;
+        border-color: color-mix(in srgb, currentColor 11%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, currentColor 4%, transparent);
+        color: inherit;
+        text-align: left;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-launcher [data-codex-company-workstream="home"]:hover {
+        border-color: color-mix(in srgb, currentColor 18%, transparent);
+        background: color-mix(in srgb, currentColor 7%, transparent);
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] #${THREAD_OVERVIEW_RAIL_ID}[data-operations-active="true"] .codex-company-ops-launcher [data-codex-company-workstream="home"] {
+        border-color: color-mix(in srgb, #36b982 36%, currentColor 8%);
+        background: color-mix(in srgb, #36b982 7%, transparent);
+        box-shadow: inset 2px 0 0 #36b982;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-entry-mark {
+        display: inline-flex;
+        width: 30px;
+        height: 30px;
+        flex: 0 0 30px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 7px;
+        background: color-mix(in srgb, #36b982 14%, transparent);
+        color: #48c68d;
+        font-size: 11px;
+        font-weight: 750;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-entry-copy {
+        display: grid;
+        min-width: 0;
+        flex: 1 1 auto;
+        gap: 1px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-entry-copy strong {
+        overflow: hidden;
+        font-size: 11px;
+        font-weight: 680;
+        line-height: 14px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-entry-copy small {
+        overflow: hidden;
+        color: var(--color-token-description-foreground, #929292);
+        font-size: 9px;
+        font-weight: 500;
+        line-height: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-company-ops-entry-chevron {
+        flex: 0 0 auto;
+        color: var(--color-token-description-foreground, #8a8a8a);
+        font-size: 18px;
+        font-weight: 400;
+        line-height: 1;
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] [data-app-action-timeline-scroll] {
+        background: var(--color-token-main-surface-primary, #181818);
+        box-shadow: inset -1px 0 0 color-mix(in srgb, currentColor 6%, transparent);
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] [data-user-message-bubble="true"] {
+        border-color: color-mix(in srgb, currentColor 9%, transparent);
+        background: var(--color-token-main-surface-secondary, #1c1c1c);
+      }
+      html[${COMPANY_WORKBENCH_MODE_ATTR}="true"] [data-codex-composer-root][data-composer-placement="thread"] [data-composer-surface-variant] {
+        background: var(--color-token-main-surface-primary, #181818) !important;
+        box-shadow:
+          inset 0 0 0 0.5px color-mix(in srgb, currentColor 10%, transparent),
+          0 8px 22px color-mix(in srgb, black 16%, transparent) !important;
+      }
+      @media (max-width: 1100px) {
+        #${THREAD_OVERVIEW_RAIL_ID} { display: none; }
       }
       #${USAGE_ID} {
         display: grid !important;
@@ -1604,6 +2168,534 @@
         -webkit-box-orient: vertical;
         -webkit-line-clamp: 3;
       }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="list"] .app-shell-left-panel:has(#app-shell-sidebar) {
+        max-width: clamp(320px, 24vw, 380px);
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="list"] .app-shell-left-panel > :has(> #app-shell-sidebar) {
+        min-width: 0 !important;
+        width: 100% !important;
+      }
+      html[data-codex-task-shell="true"] #${SIDEBAR_CONTROLS_ID} {
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      html[data-codex-task-shell="true"] #${SHORTCUT_GRID_ID}[data-codex-shortcut-compact="true"] {
+        position: relative;
+        align-items: center;
+        gap: 4px;
+        padding-bottom: 0;
+      }
+      html[data-codex-task-shell="true"] #${SHORTCUT_GRID_ID}[data-codex-shortcut-compact="true"]:has(> [data-codex-shortcut-more]) {
+        grid-template-columns: repeat(var(--codex-sidebar-shortcut-columns, 2), minmax(0, 1fr)) 30px;
+      }
+      html[data-codex-task-shell="true"] #${SHORTCUT_GRID_ID}[data-codex-shortcut-compact="true"] > [data-codex-sidebar-shortcut-card-wrap] {
+        display: flex;
+        align-items: center;
+      }
+      html[data-codex-task-shell="true"] #${SHORTCUT_GRID_ID}[data-codex-shortcut-compact="true"] .${SHORTCUT_CARD_CLASS} {
+        height: 32px;
+        padding: 5px 6px;
+        gap: 6px;
+        flex-direction: row;
+        justify-content: flex-start;
+        border-color: transparent;
+        border-radius: 6px;
+        box-shadow: none;
+        background: transparent;
+        transform: none;
+        transition: background-color 150ms ease;
+      }
+      html[data-codex-task-shell="true"] #${SHORTCUT_GRID_ID}[data-codex-shortcut-compact="true"] .${SHORTCUT_CARD_CLASS}:hover,
+      html[data-codex-task-shell="true"] #${SHORTCUT_GRID_ID}[data-codex-shortcut-compact="true"] .${SHORTCUT_CARD_CLASS}[data-active="true"] {
+        background: color-mix(in srgb, currentColor 8%, transparent);
+      }
+      html[data-codex-task-shell="true"] #${SHORTCUT_GRID_ID}[data-codex-shortcut-compact="true"] .${SHORTCUT_ICON_CLASS} {
+        width: 18px;
+        height: 18px;
+        flex-basis: 18px;
+        background: transparent;
+      }
+      html[data-codex-task-shell="true"] #${SHORTCUT_GRID_ID}[data-codex-shortcut-compact="true"] .${SHORTCUT_LABEL_CLASS} {
+        font-size: 11px;
+        line-height: 16px;
+        text-align: left;
+      }
+      html[data-codex-task-shell="true"] #${SHORTCUT_GRID_ID}[data-codex-shortcut-compact="true"] [data-codex-sidebar-shortcut-quick="true"] {
+        position: static;
+        flex: 0 0 20px;
+        height: 28px;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+      html[data-codex-task-shell="true"] #${SHORTCUT_GRID_ID}[data-codex-shortcut-compact="true"] .codex-sidebar-shortcut-status {
+        top: 3px;
+        right: 2px;
+        width: 4px;
+        height: 4px;
+      }
+      html[data-codex-task-shell="true"] .${SUMMARY_CLASS},
+      html[data-codex-task-shell="true"] .${CARD_SUMMARY_CLASS},
+      html[data-codex-task-shell="true"] .${TIME_CLASS} {
+        color: color-mix(in srgb, currentColor 78%, transparent);
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="list"] [data-codex-conversation-preview-enhanced="true"] {
+        min-height: 60px !important;
+        padding: 10px 12px !important;
+        border-radius: 8px;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="list"] [data-codex-conversation-preview-title="true"] {
+        gap: 2px !important;
+        min-width: 0;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="list"] [data-codex-conversation-preview-title="true"] [data-thread-title="true"] {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="list"] .${SUMMARY_CLASS} {
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 16px;
+        color: color-mix(in srgb, currentColor 65%, transparent);
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="list"] [data-codex-conversation-preview-enhanced="true"] > div:has(> div > [data-thread-title-trigger="true"]) {
+        padding-inline-end: 48px;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="list"] [data-codex-conversation-preview-enhanced="true"] > div:has(> div > [data-thread-title-trigger="true"]) > div:empty {
+        display: none !important;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="list"] [data-codex-conversation-preview-enhanced="true"] > [data-hover-card-open-immediately]:not(.contents),
+      html[data-codex-task-shell="true"][data-codex-conversation-view="list"] [data-codex-conversation-preview-enhanced="true"] > [data-hover-card-open-immediately].contents > div {
+        top: 10px;
+        inset-inline-end: 12px;
+        width: 44px;
+        min-width: 44px;
+        height: 20px;
+        padding: 0;
+        margin: 0;
+        gap: 4px;
+        justify-content: flex-start;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-codex-conversation-preview-enhanced="true"] {
+        height: 128px !important;
+        min-height: 128px !important;
+        max-height: 128px !important;
+        border: 1px solid var(--task-card-border, #3e4349) !important;
+        border-radius: 9px !important;
+        background: var(--task-card-surface, #24272a) !important;
+        color: #eef2f6;
+        box-shadow: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        scroll-margin-block: 12px;
+        transition: background-color 160ms ease-out, border-color 160ms ease-out;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .app-shell-left-panel:has(#app-shell-sidebar) {
+        max-width: min(460px, 42vw);
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .app-shell-left-panel > :has(> #app-shell-sidebar) {
+        min-width: 0 !important;
+        width: 100% !important;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] #app-shell-sidebar {
+        container-type: inline-size;
+        container-name: task-sidebar;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-app-action-sidebar-scroll] {
+        mask-image: none !important;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-codex-conversation-card-grid="true"] {
+        gap: 10px !important;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-codex-conversation-preview-enhanced="true"]:hover {
+        border-color: #65707b !important;
+        background: #2b2f34 !important;
+        box-shadow: none;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-codex-conversation-preview-enhanced="true"]:is([aria-current="page"], [data-app-action-sidebar-thread-selected="true"]) {
+        border-color: #779ec6 !important;
+        background: #263b50 !important;
+        box-shadow: none;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-codex-conversation-preview-enhanced="true"]:focus-visible {
+        outline: 2px solid #a9cfff;
+        outline-offset: -3px;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .${CARD_CONTENT_CLASS} {
+        grid-template-rows: auto 1fr 16px;
+        gap: 4px;
+        padding: 12px;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .${CARD_TITLE_CLASS} {
+        grid-row: 1;
+        align-self: start;
+        padding-right: 0;
+        max-height: 42px;
+        color: #eef2f6;
+        line-height: 21px;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .${CARD_TITLE_CLASS}[data-codex-card-main] {
+        display: block;
+        font-size: 0;
+        line-height: 0;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .${CARD_TITLE_CLASS}[data-codex-card-main]::before,
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .${CARD_TITLE_CLASS}[data-codex-card-main]::after {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        line-height: 21px;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .${CARD_TITLE_CLASS}[data-codex-card-main]::before {
+        content: attr(data-codex-card-main);
+        font-size: 14px;
+        font-weight: 600;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .${CARD_TITLE_CLASS}[data-codex-card-main]::after {
+        content: attr(data-codex-card-qualifier);
+        color: #c9d3de;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .${CARD_SUMMARY_CLASS} {
+        grid-row: 2;
+        color: #b6c0ca;
+        font-size: 12px;
+        font-weight: 400;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .${TIME_CLASS} {
+        grid-row: 3;
+        justify-self: end;
+        max-width: calc(100% - 90px);
+        color: #a6b2be;
+        font-variant-numeric: tabular-nums;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] .${TAGS_CLASS} {
+        display: none;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-codex-conversation-preview-enhanced="true"] > [data-hover-card-open-immediately]:not(.contents),
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-codex-conversation-preview-enhanced="true"] > [data-hover-card-open-immediately].contents > div {
+        position: absolute !important;
+        inset: auto auto 10px 12px !important;
+        width: 48px !important;
+        height: 20px !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        justify-content: flex-start !important;
+        align-items: center !important;
+        z-index: 2;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-codex-conversation-preview-enhanced="true"]:is([aria-current="page"], [data-app-action-sidebar-thread-selected="true"]):not(:hover):not(:focus-within)::after {
+        content: "✓ 当前任务";
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        color: #a9cfff;
+        font-size: 11px;
+        line-height: 16px;
+        pointer-events: none;
+      }
+      html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-codex-conversation-preview-enhanced="true"]:is([aria-current="page"], [data-app-action-sidebar-thread-selected="true"]):has(> [data-hover-card-open-immediately]:not(.contents))::after {
+        left: 40px !important;
+        content: "当前" !important;
+      }
+      @container task-sidebar (max-width: 419px) {
+        html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-codex-conversation-card-grid="true"] {
+          grid-template-columns: minmax(0, 1fr) !important;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html[data-codex-task-shell="true"][data-codex-conversation-view="card"] [data-codex-conversation-preview-enhanced="true"] {
+          transition: none;
+        }
+      }
+      html[data-codex-task-shell="true"] .${TAGS_CLASS} {
+        display: flex;
+      }
+      html.electron-dark[data-codex-task-shell="true"] .app-shell-left-panel:has(#app-shell-sidebar),
+      html.electron-dark[data-codex-task-shell="true"] #${SIDEBAR_CONTROLS_ID},
+      html.electron-dark[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} {
+        background: #1c1e20;
+      }
+      html.electron-dark[data-codex-task-shell="true"] #app-shell-sidebar {
+        --color-token-sidebar-surface-primary: #1c1e20;
+      }
+      html[data-codex-task-shell="true"] [data-app-action-timeline-scroll]:has(> [data-thread-scroll-footer="true"]) {
+        height: calc(100% - var(--thread-scroll-padding-bottom, 0px) + var(--spacing)) !important;
+        scroll-padding-bottom: 16px !important;
+      }
+      html[data-codex-task-shell="true"] [data-app-action-timeline-scroll]:has(> [data-thread-scroll-footer="true"])
+      > :has(> [data-thread-user-message-navigation-content]) > .sticky.bottom-0 {
+        display: none;
+      }
+      html[data-codex-task-shell="true"] [data-thread-find-target="conversation"]
+      > .relative.shrink-0:has(> .flex.flex-col[style*="margin-top"]) {
+        min-height: max-content;
+      }
+      html[data-codex-task-shell="true"] [data-thread-find-target="conversation"]
+      [data-local-conversation-user-anchor="true"] [role="button"][aria-haspopup="dialog"]:has(> img[alt="用户附件"]) {
+        width: fit-content !important;
+        height: auto !important;
+        max-width: min(360px, 100%);
+        min-width: 0;
+        border-radius: 10px;
+      }
+      html[data-codex-task-shell="true"] [data-thread-find-target="conversation"]
+      [data-local-conversation-user-anchor="true"] [role="button"][aria-haspopup="dialog"] > img[alt="用户附件"] {
+        width: auto !important;
+        height: auto !important;
+        max-width: 100%;
+        max-height: 260px;
+        object-fit: contain;
+      }
+      html[data-codex-task-shell="true"] [data-thread-find-target="conversation"]
+      button[data-markdown-image-preview-trigger="true"]:not(.overflow-auto) > img {
+        max-width: min(480px, 100%);
+        max-height: 320px;
+        object-fit: contain;
+      }
+      html[data-codex-task-shell="true"] .${TAGS_CLASS} > span {
+        border: 0;
+        border-radius: 4px;
+        max-width: 50%;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-overview-expand],
+      #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-overview-collapse] {
+        display: none;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+      }
+      html[data-codex-task-shell="true"]:not([data-codex-company-workbench="true"]) #${THREAD_OVERVIEW_RAIL_ID} {
+        width: clamp(280px, 36%, 480px);
+        flex-basis: clamp(280px, 36%, 480px);
+      }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-overview-collapse] {
+        display: block;
+        width: 28px;
+        height: 28px;
+        flex: 0 0 28px;
+        border-radius: 5px;
+        font-size: 22px;
+      }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID}[data-collapsed="true"] {
+        width: 40px;
+        flex-basis: 40px;
+      }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID}[data-collapsed="true"] > [data-codex-company-master-view] {
+        display: none;
+      }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID}[data-collapsed="true"] [data-codex-thread-overview-expand] {
+        display: flex;
+        align-items: center;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px 0;
+        font-size: 22px;
+      }
+      #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-overview-expand] span {
+        writing-mode: vertical-rl;
+        font-size: 12px;
+        letter-spacing: 2px;
+      }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} button:focus-visible {
+        outline: 2px solid var(--color-border-focus, #3a83f7);
+        outline-offset: -2px;
+      }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-card {
+        padding: 10px 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+      }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-card[hidden] {
+        display: none;
+      }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-mark {
+        display: none;
+      }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-add-memo] {
+        border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+        background: transparent;
+        color: inherit;
+        box-shadow: none;
+      }
+      [data-codex-task-context-extras][hidden], [data-codex-task-context-extras] [hidden] {
+        display: none !important;
+      }
+      [data-codex-task-context-extras] {
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      [data-codex-task-context-extras] h3 {
+        margin: 0 0 6px;
+        font-size: 12px;
+        font-weight: 650;
+      }
+      [data-codex-task-context-extras] p {
+        margin: 4px 0 12px;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+      [data-codex-task-context-extras] .codex-task-note-empty,
+      [data-codex-task-context-extras] .codex-task-notes-empty,
+      [data-codex-task-context-extras] .codex-task-hint {
+        color: color-mix(in srgb, currentColor 70%, transparent);
+        font-size: 11px;
+      }
+      [data-codex-task-context-extras] .codex-task-notes-empty {
+        margin: 0 0 10px;
+        max-width: 24em;
+      }
+      [data-codex-task-auto-context] { margin-bottom: 14px; }
+      [data-codex-task-auto-context] > section { margin-bottom: 16px; }
+      [data-codex-task-auto-context] > section > p { color: #c5cbd0; }
+      [data-codex-task-auto-context] summary { cursor: pointer; font-weight: 650; }
+      [data-codex-task-auto-agreements] { padding: 0 0 0 17px; margin: 8px 0 12px; }
+      [data-codex-task-auto-agreements] li { margin: 6px 0; color: #b8c0c7; }
+      [data-codex-task-auto-updated] { margin-top: 10px !important; }
+
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-header { min-height: 44px; padding: 0 12px; gap: 8px; }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-overview-heading] { display: none; }
+      [data-codex-task-rail-tabs] { display: flex; align-self: stretch; flex: 1; gap: 16px; min-width: 0; }
+      [data-codex-task-rail-tabs][hidden], [data-codex-task-skills][hidden], [data-codex-task-assets][hidden], [data-codex-task-context-extras][hidden] { display: none !important; }
+      [data-codex-task-rail-tabs] button { padding: 0 2px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #969fa6; font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1.2; cursor: pointer; white-space: nowrap; }
+      [data-codex-task-rail-tabs] button[aria-pressed="true"] { color: #edf1f4; border-bottom-color: #85afd3; }
+      [data-codex-task-rail-tabs] button:hover { color: #fff; }
+      [data-codex-task-skills] button { color: #bdc5cc; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 6px 8px; cursor: pointer; font: inherit; }
+      [data-codex-task-skills] button[aria-pressed="true"] { background: #ffffff0c; color: #e5eaf0; border-color: #ffffff18; }
+      [data-codex-task-skills] button:hover { background: #ffffff0b; }
+      [data-codex-task-skills] button:disabled { opacity: .45; cursor: default; }
+      [data-codex-task-rail-tabs] button:focus-visible, [data-codex-task-skills] :is(input, button, summary):focus-visible { outline: 2px solid #85afd3; outline-offset: 2px; }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID}:not([data-task-pane="context"]) :is([data-codex-thread-overview-title], [data-codex-thread-add-memo], [data-codex-thread-overview-meta]) { display: none !important; }
+      [data-codex-task-skills] { min-width: 0; font-size: 12px; }
+      .codex-task-skills-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 8px; }
+      .codex-task-skills-heading h3 { margin: 0; font-size: 13px; color: #eceff1; }
+      .codex-task-skills-heading span, [data-task-skill-count], [data-task-skill-status] { color: #939da6; font-size: 11px; }
+      .codex-task-skill-defaults { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 20px; color: #b8c1c9; }
+      .codex-task-skill-defaults > span { padding: 5px 8px; border-radius: 5px; background: #ffffff06; border: 1px solid #ffffff10; }
+      [data-task-skill-search] { box-sizing: border-box; width: 100%; padding: 9px 10px; border: 1px solid #ffffff26; border-radius: 7px; background: #ffffff05; color: #eceff1; font: inherit; }
+      .codex-task-skill-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 10px 0; }
+      .codex-task-skill-summary { display: flex; align-items: baseline; gap: 10px; margin: 12px 0; }
+      [data-task-skill-count] { margin-left: auto; white-space: nowrap; }
+      [data-task-skill-status] { margin: 0; }
+      .codex-task-skill-group { margin-bottom: 10px; }
+      .codex-task-skill-group > summary { padding: 9px 2px; color: #afb9c2; cursor: pointer; font-size: 11px; font-weight: 600; }
+      .codex-task-skill-row { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid #ffffff0b; padding: 4px 0; }
+      [data-codex-task-skills] .codex-task-skill-invoke { flex: 1; min-width: 0; text-align: left; padding: 10px 6px; }
+      .codex-task-skill-invoke strong { display: block; overflow-wrap: anywhere; font-size: 12px; font-weight: 600; color: #e0e5e9; }
+      .codex-task-skill-invoke span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 5px; font-size: 11px; line-height: 1.5; color: #a0aab3; }
+      [data-codex-task-skills] .codex-task-skill-star { flex: 0 0 28px; padding: 5px; font-size: 17px; }
+      #${THREAD_OVERVIEW_RAIL_ID}[data-task-pane="assets"] .codex-thread-overview-body { padding: 0; gap: 0; overflow: hidden; }
+      [data-codex-task-assets] { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; font-size: 12px; color: #c5cbd0; }
+      [data-task-asset-console-host] { display: flex; flex: 1; min-height: 0; min-width: 0; }
+      [data-task-asset-console-host] #${ASSET_CONSOLE_PANEL_ID} .codex-asset-console-header {
+        position: absolute; z-index: 12; top: 10px; right: 12px; width: auto; height: 32px;
+        padding: 0; gap: 2px; border: 0; background: transparent;
+      }
+      [data-task-asset-console-host] #${ASSET_CONSOLE_PANEL_ID} :is(.codex-asset-console-title,.codex-asset-console-local,.codex-asset-console-spacer) { display: none; }
+      [data-task-asset-console-host] #${ASSET_CONSOLE_PANEL_ID} .codex-asset-console-action { padding: 0; }
+      [data-task-asset-console-host] #${ASSET_CONSOLE_PANEL_ID},
+      [data-task-asset-console-host] #${ASSET_CONSOLE_PANEL_ID}[data-docked="true"] { grid-template-rows: minmax(0, 1fr); }
+      [data-task-asset-console-host] #${ASSET_CONSOLE_PANEL_ID} [data-codex-asset-console-close] { display: none; }
+      [data-codex-asset-console-expand][hidden] { display: none !important; }
+      [data-codex-task-assets] h3 { margin: 0 0 12px; font-size: 13px; color: #eceff1; }
+      [data-codex-task-assets] .codex-task-hint { color: #959fa8; font-size: 11px; line-height: 1.6; margin: 8px 0 12px; }
+      [data-codex-task-assets] :is(button,input) { font: inherit; color: inherit; border: 1px solid #ffffff20; background: #ffffff04; border-radius: 6px; padding: 7px 9px; }
+      [data-codex-task-assets] button { cursor: pointer; }
+      [data-codex-task-assets] button:hover { background: #ffffff0a; }
+      [data-codex-task-assets] button:disabled { opacity: .5; cursor: default; }
+      [data-codex-task-assets] :is(button,input,summary):focus-visible { outline: 2px solid #85afd3; outline-offset: 2px; }
+      [data-codex-task-assets] input { display: block; width: 100%; box-sizing: border-box; margin: 6px 0 10px; }
+      [data-codex-task-assets] label { display: block; margin: 10px 0; }
+      [data-codex-task-assets] ul { list-style: none; padding: 0; margin: 0 0 20px; }
+      [data-codex-task-assets] li { margin: 6px 0; }
+      :is([data-codex-task-assets], [data-codex-task-cold]) li button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; text-align: left; border-color: #ffffff0c; }
+      .codex-task-resource-kind { flex: 0 0 34px; text-align: center; padding: 5px 0; border-radius: 4px; color: #acbcca; background: #ffffff06; font-size: 10px; }
+      .codex-task-resource-copy { flex: 1; min-width: 0; }
+      .codex-task-resource-copy strong { display: block; font-size: 12px; font-weight: 500; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .codex-task-resource-copy small { display: block; margin-top: 3px; font-size: 10px; color: #89949e; }
+      [data-codex-task-cold] { margin-top: 18px; padding-top: 12px; border-top: 1px solid #ffffff12; }
+      [data-codex-task-cold] ul { list-style: none; padding: 0; }
+      [data-codex-task-assets] summary { padding: 6px 0; cursor: pointer; }
+      [data-codex-task-assets] [role="status"]:empty { display: none; }
+      [data-codex-task-context-extras] .codex-task-excerpt {
+        margin-top: 18px;
+        padding-top: 10px;
+        border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+      }
+      [data-codex-task-context-extras] .codex-task-excerpt > summary {
+        font-size: 11px;
+        color: color-mix(in srgb, currentColor 72%, transparent);
+      }
+      [data-codex-task-context-extras] .codex-task-excerpt > p {
+        margin: 8px 0 0;
+        font-size: 12px;
+        line-height: 1.7;
+      }
+      html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-add-memo][hidden] {
+        display: none;
+      }
+      [data-codex-task-context-extras] button {
+        min-height: 30px;
+        padding: 4px 9px;
+        border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+        border-radius: 6px;
+        color: inherit;
+        background: transparent;
+        font: inherit;
+        cursor: pointer;
+      }
+      [data-codex-task-context-extras] button:hover {
+        background: color-mix(in srgb, currentColor 8%, transparent);
+      }
+      [data-codex-task-context-extras] button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      [data-codex-task-context-extras] label { display: block; margin: 8px 0; }
+      [data-codex-task-context-extras] :is(textarea, input) {
+        display: block;
+        box-sizing: border-box;
+        width: 100%;
+        margin: 5px 0 10px;
+        padding: 8px;
+        border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+        border-radius: 6px;
+        background: color-mix(in srgb, currentColor 4%, transparent);
+        color: inherit;
+        font: inherit;
+        resize: vertical;
+      }
+      [data-codex-task-context-extras] :is(textarea, input, summary):focus-visible {
+        outline: 2px solid var(--color-border-focus, #3a83f7);
+        outline-offset: 2px;
+      }
+      [data-codex-task-context-extras] .codex-task-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+      [data-codex-task-context-extras] [data-codex-task-notes-error]:empty,
+      [data-codex-task-context-extras] [data-task-cold-status]:empty { display: none; }
+      [data-codex-task-context-extras] [data-codex-task-notes-error] { color: #edaa82; }
+      [data-codex-task-context-extras] .codex-task-resources {
+        margin-top: 18px;
+        padding-top: 14px;
+        border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+      }
+      [data-codex-task-context-extras] ul { list-style: none; padding: 0; margin: 4px 0 14px; }
+      [data-codex-task-context-extras] li button {
+        width: 100%; border: 0; padding: 5px 0; text-align: left;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      [data-codex-task-context-extras] summary { padding: 5px 0; cursor: pointer; }
+      [data-task-cold-state] { float: right; font-size: 10px; opacity: 0.7; }
+      @media (prefers-reduced-motion: reduce) {
+        html[data-codex-task-shell="true"] #${SHORTCUT_GRID_ID} .${SHORTCUT_CARD_CLASS} {
+          transition: none;
+        }
+      }
     `;
     (document.head || document.documentElement).appendChild(style);
   }
@@ -1623,6 +2715,22 @@
       .filter((row, index, rows) => row.isConnected && rows.indexOf(row) === index);
   }
 
+  function cleanTaskPreviewText(value, fallback = "") {
+    const clean = (text) => String(text || "")
+      .replace(/\{\{\s*(?:Image|Video|Audio|File)\s+\d+\s*\}\}/gi, " ")
+      .replace(/:::writing\b[^\r\n}]*\}?/gi, "")
+      .replace(/:::/g, "")
+      .replace(/```[^\r\n]*\r?\n|```|~~~/g, "")
+      .replace(/!\[\s*\]\([^)]*\)/g, " ")
+      .replace(/!?\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/(^|\n)\s{0,3}(?:#{1,6}\s+|>\s*|[-+*]\s+|\d+[.)]\s+)/g, "$1")
+      .replace(/\*{1,3}([^*]+)\*{1,3}|`([^`]+)`|~~([^~]+)~~/g, "$1$2$3")
+      .replace(/(^|\s)_{1,2}([^_]+)_{1,2}(?=\s|[.,!?:;，。！？：；]|$)/g, "$1$2")
+      .replace(/\s+/g, " ")
+      .trim();
+    return clean(value) || clean(fallback);
+  }
+
   function applySummary(row, preview) {
     const titleHost = row.querySelector("[data-thread-title-trigger=\"true\"]");
     if (!titleHost) return;
@@ -1637,10 +2745,24 @@
       summary.className = SUMMARY_CLASS;
       titleHost.appendChild(summary);
     }
-    const value = preview?.summary || "暂无本地摘要";
+    const preserveProject = !isTaskShell();
+    const value = (preserveProject ? preview?.summary
+      : cleanTaskPreviewText(preview?.summary, preview?.recentOutput)) || "暂无本地摘要";
     if (summary.textContent !== value) summary.textContent = value;
     summary.title = value;
     applyCardDetails(row, preview);
+  }
+
+  function formatTaskCardTitle(title, value) {
+    const parts = value.split("｜");
+    for (const [attribute, text] of [
+      ["data-codex-card-main", parts.length === 2 ? parts[0].trim() : ""],
+      ["data-codex-card-qualifier", parts.length === 2 ? parts[1].trim() : ""],
+    ]) {
+      if (parts.length === 2 && parts.every((part) => part.trim())) {
+        if (title.getAttribute(attribute) !== text) title.setAttribute(attribute, text);
+      } else title.removeAttribute(attribute);
+    }
   }
 
   function applyCardDetails(row, preview) {
@@ -1668,10 +2790,25 @@
     const titleValue = row.getAttribute("data-app-action-sidebar-thread-title")
       || row.querySelector("[data-thread-title]")?.textContent?.trim()
       || "未命名对话";
-    const summaryValue = preview?.summary || "暂无本地摘要";
+    const preserveProject = !isTaskShell();
+    const summaryValue = (preserveProject ? preview?.summary
+      : cleanTaskPreviewText(preview?.summary, preview?.recentOutput)) || "暂无本地摘要";
     title.textContent = titleValue;
     title.title = titleValue;
-    time.textContent = preview?.lastCommunication || "时间未提供";
+    formatTaskCardTitle(title, titleValue);
+    if (preserveProject) {
+      time.textContent = preview?.lastCommunication || "时间未提供";
+      time.removeAttribute("title");
+    } else {
+      const updatedAt = Date.parse(preview?.updatedAt || "");
+      const hasUpdate = Number.isFinite(updatedAt);
+      time.textContent = hasUpdate
+        ? `更新 ${preview.lastCommunication || new Date(updatedAt).toLocaleDateString("zh-CN")}`
+        : "更新时间未提供";
+      time.title = hasUpdate
+        ? `本地索引更新时间（缺失时使用日志文件修改时间）：${new Date(updatedAt).toLocaleString("zh-CN")}`
+        : "未获取到本地更新时间";
+    }
     summary.textContent = summaryValue;
     summary.title = summaryValue;
 
@@ -1680,10 +2817,16 @@
       .replace(/skills?/ig, "")
       .trim()
       .slice(0, 8) || "任务主题";
-    const values = Array.isArray(preview?.tags) && preview.tags.length
+    let values = Array.isArray(preview?.tags) && preview.tags.length
       ? preview.tags.slice(0, 3)
       : [subjectFallback, "摘要未提供", "真实数据"];
-    while (values.length < 3) values.push(["任务主题", "摘要未提供", "真实数据"][values.length]);
+    if (preserveProject) {
+      while (values.length < 3) values.push(["任务主题", "摘要未提供", "真实数据"][values.length]);
+    } else {
+      const genericTags = /^(任务主题|摘要未提供|真实数据|需求处理|需求梳理|成果整理|阶段成果|持续推进|阶段完成|问题已解决|交付完成|待付费提交|待计费提交|版本定稿|方案已准备|部署完成|Skill交付|验收通过|成果交付|通用交付)$/i;
+      values = [...new Set((Array.isArray(preview?.tags) ? preview.tags : [])
+        .map((value) => cleanTaskPreviewText(value)).filter((value) => value && !genericTags.test(value)))].slice(0, 2);
+    }
     const signature = values.join("\n");
     if (tags.dataset.values !== signature) {
       tags.dataset.values = signature;
@@ -1703,28 +2846,41 @@
     return `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/></svg>`;
   }
 
+  function isTaskShell() {
+    return activeSectionTab !== "项目"
+      && document.documentElement.getAttribute(COMPANY_WORKBENCH_MODE_ATTR) !== "true";
+  }
+
+  function currentViewMode() {
+    return isTaskShell() ? taskViewMode : viewMode;
+  }
+
   function updateViewState() {
-    document.documentElement.setAttribute("data-codex-conversation-view", viewMode);
+    const mode = currentViewMode();
+    document.documentElement.setAttribute("data-codex-task-shell", String(isTaskShell()));
+    document.documentElement.setAttribute("data-codex-conversation-view", mode);
     const button = document.getElementById(TOGGLE_ID);
     if (!button) return;
-    const isCard = viewMode === "card";
-    const label = isCard
-      ? "卡片视图已开启，切换为列表视图"
-      : "卡片视图已关闭，切换为卡片视图";
+    const isCard = mode === "card";
+    const label = isTaskShell()
+      ? isCard ? "卡片视图，切换为紧凑列表" : "紧凑列表，切换为卡片视图"
+      : isCard ? "卡片视图已开启，切换为列表视图" : "卡片视图已关闭，切换为卡片视图";
     button.setAttribute("aria-checked", String(isCard));
     button.setAttribute("aria-label", label);
     button.title = label;
-    if (button.dataset.mode !== viewMode || !button.querySelector(`.${SWITCH_THUMB_CLASS}`)) {
-      button.dataset.mode = viewMode;
-      button.innerHTML = `<span class="${SWITCH_THUMB_CLASS}" aria-hidden="true">${switchIcon(viewMode)}</span>`;
+    if (button.dataset.mode !== mode || !button.querySelector(`.${SWITCH_THUMB_CLASS}`)) {
+      button.dataset.mode = mode;
+      button.innerHTML = `<span class="${SWITCH_THUMB_CLASS}" aria-hidden="true">${switchIcon(mode)}</span>`;
     }
   }
 
   function handleViewToggle(event) {
     event.preventDefault();
     event.stopPropagation();
-    viewMode = viewMode === "card" ? "list" : "card";
-    try { localStorage.setItem(VIEW_STORAGE_KEY, viewMode); } catch {}
+    const mode = currentViewMode() === "card" ? "list" : "card";
+    if (isTaskShell()) taskViewMode = mode;
+    else viewMode = mode;
+    try { localStorage.setItem(isTaskShell() ? TASK_VIEW_STORAGE_KEY : VIEW_STORAGE_KEY, mode); } catch {}
     layoutAnchored = false;
     updateViewState();
     scheduleSync();
@@ -1749,12 +2905,131 @@
       || document.querySelector('[data-app-action-sidebar-thread-id][aria-current="page"]')
       || document.querySelector('[data-app-action-sidebar-thread-id][data-active="true"]')
       || document.querySelector('[data-app-action-sidebar-thread-id][data-app-action-sidebar-thread-active="true"]');
-    const rawId = selected?.getAttribute("data-app-action-sidebar-thread-id") || "";
+    const selectedId = (selected?.getAttribute("data-app-action-sidebar-thread-id") || "").replace(/^(local|cloud):/, "");
+    const rawId = document.querySelector('[data-above-composer-conversation-id]')?.getAttribute("data-above-composer-conversation-id") || selectedId;
+    const threadId = rawId.replace(/^(local|cloud):/, "");
     return {
-      threadId: rawId.replace(/^local:/, ""),
-      threadTitle: selected?.getAttribute("data-app-action-sidebar-thread-title")
-        || selected?.textContent?.trim()
+      threadId,
+      threadTitle: (threadId === selectedId ? selected?.getAttribute("data-app-action-sidebar-thread-title") : "")
+        || currentThreadHeaderTitle()
         || "当前 Codex 任务",
+    };
+  }
+
+  function compactThreadText(value, limit = 280) {
+    return String(value || "").replace(/\s+/gu, " ").trim().slice(0, limit);
+  }
+
+  function currentThreadHeaderTitle() {
+    return Array.from(document.querySelectorAll('[data-testid="app-shell-header-context-menu-surface"] button'))
+      .find((button) => {
+        const rect = button.getBoundingClientRect();
+        return rect.width > 20 && rect.height > 16 && compactThreadText(button.textContent);
+      })?.textContent?.trim() || "";
+  }
+
+  function assistantTextFromTurn(turn) {
+    const nodes = turn?.querySelectorAll(
+      '[data-response-annotation-conversation][data-response-annotation-target] [data-markdown-text-style="assistant-message"], '
+      + '[data-local-conversation-final-assistant="true"] [data-markdown-text-style="assistant-message"]',
+    ) || [];
+    return compactThreadText(Array.from(new Set(Array.from(nodes, (node) => compactThreadText(node.innerText))))
+      .filter(Boolean).join(" "), 360);
+  }
+
+  function deriveThreadNextStep(assistantText) {
+    // ponytail: keyword extraction is intentionally local; use a model-backed summary only if long-thread accuracy becomes limiting.
+    const candidate = String(assistantText || "").split(/[。！？；\n]+/u)
+      .map((part) => compactThreadText(part, 180))
+      .find((part) => /下一步|接下来|待办|请确认|需要你/u.test(part));
+    return candidate || "等待你的下一条要求";
+  }
+
+  function readCurrentThreadSnapshot() {
+    const conversation = document.querySelector('[data-thread-find-target="conversation"]');
+    if (!conversation) return null;
+    const turns = Array.from(conversation.querySelectorAll("[data-turn-key]"));
+    const userMessages = turns.map((turn) => compactThreadText(
+      turn.querySelector('[data-local-conversation-user-anchor="true"] [data-user-message-bubble="true"]')?.innerText,
+      320,
+    )).filter(Boolean);
+    if (!userMessages.length) return null;
+    const assistantMessages = turns.map(assistantTextFromTurn).filter(Boolean);
+    const latestUser = userMessages.at(-1) || "当前要求";
+    const latestAssistant = assistantMessages.at(-1) || "尚未形成可记录的进展";
+    const recentProgress = compactThreadText(assistantMessages.slice(-3).join(" · "), 720)
+      || "尚未形成可记录的进展";
+    const lastTurn = turns.at(-1);
+    const running = Boolean(document.querySelector(
+      '[data-composer-placement="thread"] button[aria-label="停止"]:not(:disabled), '
+      + '[data-composer-placement="thread"] button[aria-label="Stop"]:not(:disabled)',
+    ));
+    const pending = !running
+      && Boolean(lastTurn?.querySelector('[data-local-conversation-user-anchor="true"]'))
+      && !lastTurn?.querySelector('[data-local-conversation-final-assistant="true"]');
+    const task = currentCodexTaskContext();
+    const title = compactThreadText(
+      task.threadTitle === "当前 Codex 任务" ? currentThreadHeaderTitle() : task.threadTitle,
+      120,
+    ) || "当前 Codex 任务";
+    const threadId = document.querySelector("[data-above-composer-conversation-id]")
+      ?.getAttribute("data-above-composer-conversation-id")
+      || document.querySelector("[data-response-annotation-conversation]")
+        ?.getAttribute("data-response-annotation-conversation")
+      || task.threadId;
+    const progress = running
+      ? compactThreadText(`正在处理：${latestUser}；上一进展：${latestAssistant}`, 360)
+      : pending
+        ? compactThreadText(`等待继续处理：${latestUser}`, 360)
+        : latestAssistant;
+    return {
+      threadId: compactThreadText(threadId, 160),
+      title,
+      goal: userMessages[0],
+      currentRequest: latestUser,
+      progress: running || pending ? progress : recentProgress,
+      latestAnswer: assistantMessages.at(-1) || "",
+      summary: compactThreadText(assistantMessages.length
+        ? `围绕「${title}」，目前进展：${latestAssistant}${running || pending ? `；当前正在处理：${latestUser}` : ""}`
+        : `这是关于「${title}」的任务，正在处理当前要求。`, 280),
+      nextStep: running
+        ? compactThreadText(`完成当前要求：${latestUser}`, 220)
+        : pending
+          ? compactThreadText(`继续处理当前要求：${latestUser}`, 220)
+          : deriveThreadNextStep(latestAssistant),
+      status: running ? "进行中" : pending ? "待继续" : "已同步",
+      running,
+      turnCount: userMessages.length,
+      historyComplete: false,
+    };
+  }
+
+  function resolvedCurrentThreadSnapshot() {
+    const dom = readCurrentThreadSnapshot();
+    const saved = threadOverview && typeof threadOverview === "object" ? threadOverview : null;
+    if (!saved) return dom;
+    const normalizeId = (value) => compactThreadText(value, 160).replace(/^(?:local|cloud):/iu, "").toLowerCase();
+    const domId = normalizeId(dom?.threadId);
+    const savedId = normalizeId(saved.threadId);
+    if (domId && savedId && domId !== savedId) return dom;
+    const currentRequest = compactThreadText(saved.currentRequest || dom?.currentRequest, 360);
+    const running = Boolean(dom?.running || saved.running);
+    const pending = !running && dom?.status === "待继续";
+    return {
+      threadId: savedId || domId,
+      title: compactThreadText(saved.title || dom?.title, 120) || "当前 Codex 任务",
+      goal: compactThreadText(saved.goal || dom?.goal, 520) || "尚未识别任务目标",
+      currentRequest: currentRequest || "当前要求未提取",
+      progress: compactThreadText(saved.progress || dom?.progress, 900) || "尚未形成可记录的进展",
+      latestAnswer: dom?.latestAnswer || "",
+      summary: compactThreadText(saved.summary || dom?.summary || saved.progress || dom?.progress, 320)
+        || "尚未形成可用总结",
+      nextStep: compactThreadText(saved.nextStep || dom?.nextStep, 360) || "等待你的下一条要求",
+      status: running ? "进行中" : pending ? "待继续" : compactThreadText(saved.status, 20) || dom?.status || "已同步",
+      running,
+      turnCount: Number.isFinite(Number(saved.turnCount)) ? Number(saved.turnCount) : dom?.turnCount || 0,
+      historyComplete: true,
+      taskContext: saved.taskContext || null,
     };
   }
 
@@ -1762,11 +3037,18 @@
     return `${context.threadId}\u0000${context.threadTitle}`;
   }
 
-  function notifyAssetConsole(action) {
+  function activeConsoleKind() {
+    return document.getElementById(ASSET_CONSOLE_PANEL_ID)?.dataset.consoleKind === "operations"
+      ? "operations"
+      : "asset";
+  }
+
+  function notifyAssetConsole(action, panel = activeConsoleKind()) {
     if (typeof window.codexSidebarOpenAssetConsole !== "function") return false;
     try {
       window.codexSidebarOpenAssetConsole(JSON.stringify({
         action,
+        panel,
         source: "sidebar",
         at: Date.now(),
         ...(action === "open" ? currentCodexTaskContext() : {}),
@@ -1784,11 +3066,13 @@
     }) || null;
   }
 
-  function addAssetReferencesToComposer(assetPaths) {
-    const composer = currentComposer();
-    if (!composer || !assetPaths?.length) return false;
+  function addTextToComposer(value, targetComposer = null) {
+    const valueText = typeof value === "string" ? value.trim() : "";
+    if (!valueText) return false;
+    const composer = targetComposer || currentComposer();
+    if (!composer) return false;
     const prefix = composer.textContent?.trim() ? "\n" : "";
-    const text = `${prefix}${assetPaths.map((assetPath) => `参考资产：${assetPath}`).join("\n")}`;
+    const text = `${prefix}${valueText}`;
     composer.focus();
     const selection = window.getSelection();
     const range = document.createRange();
@@ -1812,6 +3096,103 @@
     return true;
   }
 
+  function addAssetReferencesToComposer(assetPaths) {
+    const controller = taskSkillComposerController();
+    const type = controller?.view.state.schema.nodes.atMention;
+    if (!type || !Array.isArray(assetPaths) || !assetPaths.length || !assetPaths.every(isAbsoluteWindowsAssetPath)) return false;
+    const present = new Set(taskComposerAssetReferences(controller).map((entry) => taskAssetReferenceKey(entry.fsPath || entry.path)));
+    const mentions = [];
+    for (const value of assetPaths) {
+      const path = value.trim();
+      const key = taskAssetReferenceKey(path);
+      if (present.has(key)) continue;
+      present.add(key);
+      mentions.push(type.create({ label: path.split(/[\\/]/).pop() || path, path, fsPath: path }));
+    }
+    if (!mentions.length) return true;
+    const { state } = controller.view;
+    let position = null;
+    state.doc.descendants((node, pos) => {
+      if (position === null && node.isTextblock && node.type.contentMatch.matchType(type)) position = pos + 1;
+      return position === null;
+    });
+    const transaction = state.tr;
+    if (position === null) transaction.insert(state.doc.content.size, state.schema.nodes.paragraph.create(null, mentions));
+    else for (const mention of mentions) {
+      transaction.insert(position, mention);
+      position += mention.nodeSize;
+    }
+    controller.view.dispatch(transaction);
+    ensureTaskAssetComposerChips();
+    return true;
+  }
+
+  function taskAssetReferenceKey(path) {
+    return path.replace(/\\/g, "/").toLowerCase();
+  }
+
+  function taskComposerAssetReferences(controller) {
+    const entries = [];
+    controller?.view.state.doc.descendants((node, pos) => {
+      if (node.type.name === "atMention" && isAbsoluteWindowsAssetPath(node.attrs.fsPath || node.attrs.path)) {
+        entries.push({ ...node.attrs, pos, nodeSize: node.nodeSize });
+      }
+    });
+    return entries;
+  }
+
+  function removeTaskAssetReference(path, threadId) {
+    if (normalizedThreadId(currentConversationThreadId()) !== normalizedThreadId(threadId)) return;
+    const controller = taskSkillComposerController();
+    if (!controller) return;
+    const entries = taskComposerAssetReferences(controller).filter((entry) => taskAssetReferenceKey(entry.fsPath || entry.path) === taskAssetReferenceKey(path));
+    if (!entries.length) return;
+    const transaction = controller.view.state.tr;
+    for (const entry of entries.reverse()) transaction.delete(entry.pos, entry.pos + entry.nodeSize);
+    controller.view.dispatch(transaction);
+    ensureTaskAssetComposerChips();
+  }
+
+  function ensureTaskAssetComposerChips() {
+    const id = "codex-task-asset-composer-chips";
+    const portal = document.querySelector('[data-codex-composer-root][data-composer-placement="thread"] > [data-above-composer-portal="true"]');
+    const entries = taskComposerAssetReferences(taskSkillComposerController());
+    let container = document.getElementById(id);
+    if (!portal || !entries.length) { container?.remove(); return; }
+    if (!container || container.parentElement !== portal) {
+      container?.remove();
+      container = document.createElement("div");
+      container.id = id;
+      container.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;padding:6px 12px";
+      portal.append(container);
+    }
+    const threadId = currentConversationThreadId();
+    const signature = JSON.stringify([threadId, entries.map((entry) => [entry.path, entry.fsPath, entry.label])]);
+    if (container.assetSignature === signature) return;
+    container.assetSignature = signature;
+    container.replaceChildren();
+    const style = document.createElement("style");
+    style.textContent = entries.map((entry) => `[data-composer-placement="thread"] [contenteditable="true"] [at-mention-path="${CSS.escape(entry.path)}"]`).join(",") + "{display:none!important}";
+    container.append(style);
+    const unique = new Map(entries.map((entry) => [taskAssetReferenceKey(entry.fsPath || entry.path), entry]));
+    for (const entry of unique.values()) {
+      const path = entry.fsPath || entry.path;
+      const chip = document.createElement("span");
+      chip.style.cssText = "display:inline-flex;align-items:center;gap:7px;max-width:100%;border:1px solid var(--border-default,#8885);border-radius:8px;padding:3px 7px;font-size:12px";
+      chip.title = path;
+      const label = document.createElement("span");
+      label.textContent = entry.label || path.split(/[\\/]/).pop();
+      label.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", `移除文件引用：${label.textContent}`);
+      remove.onclick = () => removeTaskAssetReference(path, threadId);
+      chip.append(label, remove);
+      container.append(chip);
+    }
+  }
+
   function addAssetReferenceToComposer(assetPath) {
     return addAssetReferencesToComposer([assetPath]);
   }
@@ -1828,6 +3209,8 @@
     if (!frame || event.source !== frame.contentWindow) return;
     const message = event.data;
     if (!message || message.source !== "asset-console") return;
+    const panel = document.getElementById(ASSET_CONSOLE_PANEL_ID);
+    if (message.source === "asset-console" && (panel?.hidden || panel?.dataset.taskContextKey !== assetConsoleTaskContextKey())) return;
     if (message.action === "return-to-codex") {
       closeAssetConsolePanel({ focusTarget: "composer" });
       return;
@@ -1854,7 +3237,7 @@
 
   function positionAssetConsolePanel() {
     const panel = document.getElementById(ASSET_CONSOLE_PANEL_ID);
-    if (!panel) return;
+    if (!panel || panel.dataset.docked === "true") return;
     const sidebar = document.getElementById(SHORTCUT_GRID_ID)?.closest("aside");
     const rect = sidebar?.getBoundingClientRect();
     panel.style.left = `${Math.max(0, Math.round(rect?.right || 0))}px`;
@@ -1864,19 +3247,76 @@
   function setAssetConsolePanelState(state, message = "") {
     const panel = document.getElementById(ASSET_CONSOLE_PANEL_ID);
     if (!panel) return;
+    const label = panel.dataset.consoleKind === "operations" ? "专项运营" : "资产控制台";
     panel.dataset.state = state;
     const stateNode = panel.querySelector(".codex-asset-console-state");
     const messageNode = panel.querySelector(".codex-asset-console-message");
     if (stateNode) stateNode.hidden = state === "ready";
-    if (messageNode) messageNode.textContent = message || (state === "loading" ? "正在连接本机资产库…" : "资产控制台暂时无法加载");
+    if (messageNode) messageNode.textContent = message
+      || (state === "loading" ? `正在连接${label}…` : `${label}暂时无法加载`);
+  }
+
+  function resetOperationsFrameChannel({ preserveWorkstream = true } = {}) {
+    operationsFrameReady = false;
+    operationsFrameNonce = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+    operationsPendingMessage = null;
+    if (!preserveWorkstream) companyOperationsWorkstream = "";
+    if (companyOperationsWorkstream) {
+      operationsPendingMessage = {
+        source: "codex-sidebar-enhancer",
+        action: "open-workstream",
+        workstream: companyOperationsWorkstream,
+        nonce: operationsFrameNonce,
+      };
+    }
+  }
+
+  function sendOperationsWorkstream(workstream) {
+    if (!COMPANY_OPERATIONS_WORKSTREAMS.has(workstream)) return false;
+    companyOperationsWorkstream = workstream;
+    const panel = document.querySelector(`#${ASSET_CONSOLE_PANEL_ID}[data-console-kind="operations"]`);
+    if (panel) panel.dataset.workstream = workstream;
+    document.querySelectorAll("[data-codex-company-workstream]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.codexCompanyWorkstream === workstream));
+    });
+    if (!operationsFrameNonce) resetOperationsFrameChannel();
+    const message = {
+      source: "codex-sidebar-enhancer",
+      action: "open-workstream",
+      workstream,
+      nonce: operationsFrameNonce,
+    };
+    const frame = document.getElementById(ASSET_CONSOLE_FRAME_ID);
+    if (!operationsFrameReady || !frame?.contentWindow) {
+      operationsPendingMessage = message;
+      return true;
+    }
+    try {
+      frame.contentWindow.postMessage(message, "https://web-sandbox.oaiusercontent.com");
+      operationsPendingMessage = null;
+      return true;
+    } catch {
+      operationsPendingMessage = message;
+      return false;
+    }
+  }
+
+  function flushOperationsFrameMessage() {
+    operationsFrameReady = true;
+    const message = operationsPendingMessage;
+    if (!message || message.nonce !== operationsFrameNonce) return;
+    sendOperationsWorkstream(message.workstream);
   }
 
   function setAssetConsolePanel(value) {
     const source = value && typeof value === "object" ? value : {};
     const panel = document.getElementById(ASSET_CONSOLE_PANEL_ID);
     if (!panel) return;
+    const panelKind = panel.dataset.consoleKind === "operations" ? "operations" : "asset";
+    if (source.panel && source.panel !== panelKind) return;
     if (source.state !== "ready" || typeof source.url !== "string" || !source.url) {
       panel.querySelector(`#${ASSET_CONSOLE_FRAME_ID}`)?.remove();
+      if (panelKind === "operations") resetOperationsFrameChannel();
       setAssetConsolePanelState(source.state === "error" ? "error" : "loading", source.message || "");
       return;
     }
@@ -1886,22 +3326,40 @@
     if (!frame) {
       frame = document.createElement("iframe");
       frame.id = ASSET_CONSOLE_FRAME_ID;
-      frame.title = "资产控制台";
+      frame.title = source.label || (panelKind === "operations" ? "专项运营" : "资产控制台");
       frame.setAttribute("allow", "clipboard-read; clipboard-write; autoplay");
-      frame.onload = () => setAssetConsolePanelState("ready");
+      frame.onload = () => {
+        setAssetConsolePanelState("ready");
+        if (panelKind === "operations") flushOperationsFrameMessage();
+      };
       body.appendChild(frame);
     }
-    setAssetConsolePanelState("ready");
+    setAssetConsolePanelState(frame.src === source.url && (panelKind !== "operations" || operationsFrameReady) ? "ready" : "loading");
     if (frame.src !== source.url) frame.src = source.url;
   }
 
-  function closeAssetConsolePanel({ notify = true, focusTarget = "opener" } = {}) {
+  function closeAssetConsolePanel({ notify = true, focusTarget = "opener", destroy = false } = {}) {
     const panel = document.getElementById(ASSET_CONSOLE_PANEL_ID);
     if (!panel) return;
+    if (panel.dataset.consoleKind === "operations" && panel.dataset.docked === "true" && !destroy
+      && document.documentElement.getAttribute(COMPANY_WORKBENCH_MODE_ATTR) === "true") {
+      requestAnimationFrame(() => {
+        const target = focusTarget === "composer" ? currentComposer() : assetConsoleReturnFocus;
+        if (target instanceof HTMLElement && target.isConnected) target.focus();
+      });
+      return;
+    }
+    const panelKind = panel.dataset.consoleKind === "operations" ? "operations" : "asset";
     const returnFocus = assetConsoleReturnFocus;
-    panel.remove();
+    const keepAsset = panelKind === "asset" && isTaskShell() && !destroy;
+    if (keepAsset) {
+      panel.hidden = true;
+      if (panel.closest("[data-task-asset-console-host]")) taskRailTab = "context";
+    }
+    else panel.remove();
+    if (panelKind === "operations") resetOperationsFrameChannel({ preserveWorkstream: false });
     assetConsoleReturnFocus = null;
-    if (notify) notifyAssetConsole("close");
+    if (notify && !keepAsset) notifyAssetConsole("close", panelKind);
     scheduleSync();
     requestAnimationFrame(() => {
       const target = focusTarget === "none" ? null : focusTarget === "composer" ? currentComposer() : returnFocus;
@@ -1911,79 +3369,169 @@
 
   function syncAssetConsoleTaskContext({ force = false } = {}) {
     const panel = document.getElementById(ASSET_CONSOLE_PANEL_ID);
-    if (!panel) return false;
+    if (!panel || panel.hidden) return false;
     const context = currentCodexTaskContext();
     if (!context.threadId) return false;
     const nextKey = assetConsoleTaskContextKey(context);
     if (!force && panel.dataset.taskContextKey === nextKey) return false;
     panel.dataset.taskContextKey = nextKey;
     panel.querySelector(`#${ASSET_CONSOLE_FRAME_ID}`)?.remove();
+    if (panel.dataset.consoleKind === "operations") resetOperationsFrameChannel();
     setAssetConsolePanelState("loading");
-    if (!notifyAssetConsole("open")) {
+    if (!notifyAssetConsole("open", panel.dataset.consoleKind)) {
       setAssetConsolePanelState("error", "本机连接未就绪，请稍后重试");
     }
     return true;
   }
 
-  function openAssetConsolePanel() {
+  function openAssetConsolePanel(consoleKind = "asset", options = {}) {
+    const kind = consoleKind === "operations" ? "operations" : "asset";
+    const label = kind === "operations" ? "专项运营" : "项目资产";
+    const rail = document.getElementById(THREAD_OVERVIEW_RAIL_ID);
+    const assetHost = kind === "asset" && isTaskShell() ? rail?.querySelector("[data-task-asset-console-host]") : null;
+    if (assetHost) {
+      taskRailTab = "assets";
+      overviewCollapsed = false;
+      try { localStorage.setItem(OVERVIEW_COLLAPSED_KEY, "false"); } catch {}
+      scheduleSync();
+    }
+    const docked = options.docked ?? (kind === "operations"
+      && document.documentElement.getAttribute(COMPANY_WORKBENCH_MODE_ATTR) === "true"
+      && Boolean(rail));
     const existing = document.getElementById(ASSET_CONSOLE_PANEL_ID);
-    if (existing) {
+    if (existing?.dataset.consoleKind === kind) {
+      if (existing.hidden) assetConsoleReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const launcher = rail?.querySelector(".codex-company-ops-launcher");
+      if (assetHost) {
+        if (existing.parentElement !== assetHost) assetHost.appendChild(existing);
+      }
+      else if (docked && rail && (existing.parentElement !== rail || existing.nextElementSibling !== launcher)) {
+        rail.insertBefore(existing, launcher || null);
+      }
+      else if (!docked && existing.parentElement !== document.body) document.body.appendChild(existing);
+      existing.dataset.docked = String(docked);
+      existing.hidden = false;
+      existing.setAttribute("role", docked ? "region" : "dialog");
+      const close = existing.querySelector("[data-codex-asset-console-close]");
+      if (close) {
+        close.setAttribute("aria-label", assetHost ? "返回上下文" : docked ? "返回主控态势" : `关闭${label}`);
+        close.title = assetHost ? "返回上下文" : docked ? "返回主控态势" : "关闭";
+      }
+      updateAssetConsoleExpandButton(existing, assetHost);
+      if (docked) {
+        existing.style.removeProperty("left");
+        existing.style.removeProperty("top");
+      }
+      if (kind === "operations" && !operationsFrameReady) {
+        const frame = existing.querySelector(`#${ASSET_CONSOLE_FRAME_ID}`);
+        if (frame?.src) {
+          frame.onload = () => {
+            setAssetConsolePanelState("ready");
+            flushOperationsFrameMessage();
+          };
+          setAssetConsolePanelState("loading");
+          frame.src = frame.src;
+        }
+      }
       positionAssetConsolePanel();
       syncAssetConsoleTaskContext();
-      existing.querySelector(".codex-asset-console-action:last-child")?.focus();
       return;
     }
+    if (existing) closeAssetConsolePanel({ notify: false, focusTarget: "none", destroy: true });
     assetConsoleReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const panel = document.createElement("section");
     panel.id = ASSET_CONSOLE_PANEL_ID;
     panel.dataset.state = "loading";
+    panel.dataset.consoleKind = kind;
+    panel.dataset.docked = String(docked);
     panel.dataset.taskContextKey = assetConsoleTaskContextKey();
-    panel.setAttribute("role", "dialog");
-    panel.setAttribute("aria-label", "资产控制台");
+    panel.setAttribute("role", docked ? "region" : "dialog");
+    panel.setAttribute("aria-label", label);
     panel.innerHTML = `
       <header class="codex-asset-console-header">
-        <span class="codex-asset-console-title">资产控制台</span>
+        <span class="codex-asset-console-title">${label}</span>
         <span class="codex-asset-console-local">本机直连</span>
         <span class="codex-asset-console-spacer"></span>
-        <button type="button" class="codex-asset-console-action" data-codex-asset-console-refresh aria-label="刷新资产控制台" title="刷新">
+        <button type="button" class="codex-asset-console-action" data-codex-asset-console-expand hidden></button>
+        <button type="button" class="codex-asset-console-action" data-codex-asset-console-refresh aria-label="刷新${label}" title="刷新">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M12.7 5.2A5.4 5.4 0 1 0 13 9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M10.2 5.2h2.8V2.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <button type="button" class="codex-asset-console-action" data-codex-asset-console-close aria-label="关闭资产控制台" title="关闭">
+        <button type="button" class="codex-asset-console-action" data-codex-asset-console-close aria-label="关闭${label}" title="关闭">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg>
         </button>
       </header>
       <div class="codex-asset-console-body">
         <div class="codex-asset-console-state" role="status">
           <span class="codex-asset-console-spinner" aria-hidden="true"></span>
-          <span class="codex-asset-console-message">正在连接本机资产库…</span>
+          <span class="codex-asset-console-message">正在连接${label}…</span>
           <button type="button" class="codex-asset-console-retry">重新连接</button>
         </div>
       </div>`;
-    panel.querySelector("[data-codex-asset-console-close]").onclick = () => closeAssetConsolePanel();
+    const closeButton = panel.querySelector("[data-codex-asset-console-close]");
+    closeButton.setAttribute("aria-label", assetHost ? "返回上下文" : docked ? "返回主控态势" : `关闭${label}`);
+    closeButton.title = assetHost ? "返回上下文" : docked ? "返回主控态势" : "关闭";
+    if (docked && kind === "operations") closeButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m9.5 3.5-4.5 4.5 4.5 4.5M5 8h7" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    updateAssetConsoleExpandButton(panel, assetHost);
+    panel.querySelector("[data-codex-asset-console-expand]").onclick = () => openAssetConsolePanel("asset", { docked: panel.dataset.docked !== "true" });
+    closeButton.onclick = () => {
+      if (panel.dataset.docked === "true" && panel.dataset.consoleKind === "operations") returnToCompanyMaster();
+      else closeAssetConsolePanel();
+    };
     panel.querySelector("[data-codex-asset-console-refresh]").onclick = () => {
       const frame = document.getElementById(ASSET_CONSOLE_FRAME_ID);
-      if (frame) frame.src = frame.src;
+      if (frame) {
+        if (kind === "operations") resetOperationsFrameChannel();
+        frame.src = frame.src;
+      }
       else {
+        if (kind === "operations") resetOperationsFrameChannel();
         setAssetConsolePanelState("loading");
-        notifyAssetConsole("open");
+        notifyAssetConsole("open", kind);
       }
     };
     panel.querySelector(".codex-asset-console-retry").onclick = () => {
+      if (kind === "operations") resetOperationsFrameChannel();
       setAssetConsolePanelState("loading");
-      notifyAssetConsole("open");
+      notifyAssetConsole("open", kind);
     };
-    document.body.appendChild(panel);
+    if (assetHost) assetHost.appendChild(panel);
+    else if (docked && rail) rail.insertBefore(panel, rail.querySelector(".codex-company-ops-launcher"));
+    else document.body.appendChild(panel);
     positionAssetConsolePanel();
     scheduleSync();
-    if (!notifyAssetConsole("open")) {
+    if (!notifyAssetConsole("open", kind)) {
       setAssetConsolePanelState("error", "本机连接未就绪，请稍后重试");
     }
   }
 
+  function updateAssetConsoleExpandButton(panel, assetHost) {
+    const button = panel.querySelector("[data-codex-asset-console-expand]");
+    if (!button) return;
+    button.hidden = !assetHost;
+    const docked = panel.dataset.docked === "true";
+    const label = docked ? "展开资产工作区" : "收回右栏";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.textContent = docked ? "↗" : "↙";
+  }
+
+  function syncTaskAssetPanel(rail) {
+    const panel = rail.querySelector("[data-task-asset-console-host]")?.querySelector(`#${ASSET_CONSOLE_PANEL_ID}`);
+    const visible = isTaskShell() && taskRailTab === "assets" && !overviewCollapsed;
+    if (!visible) {
+      if (panel) panel.hidden = true;
+      return;
+    }
+    if (!panel || panel.hidden) openAssetConsolePanel("asset", { docked: true });
+    else syncAssetConsoleTaskContext();
+  }
+
   function handleAssetConsoleKeydown(event) {
-    if (event.key === "Escape" && document.getElementById(ASSET_CONSOLE_PANEL_ID)) {
+    const panel = document.getElementById(ASSET_CONSOLE_PANEL_ID);
+    if (event.key === "Escape" && panel && !panel.hidden) {
       event.preventDefault();
-      closeAssetConsolePanel();
+      if (panel.dataset.docked === "true" && panel.dataset.consoleKind === "operations") returnToCompanyMaster();
+      else closeAssetConsolePanel();
     }
   }
 
@@ -2011,6 +3559,13 @@
       else project?.click();
     };
     const skillsAction = () => {
+      if (isTaskShell() && innerWidth > 1100 && document.getElementById(THREAD_OVERVIEW_RAIL_ID)) {
+        taskRailTab = "skills";
+        overviewCollapsed = false;
+        try { localStorage.setItem(OVERVIEW_COLLAPSED_KEY, "false"); } catch {}
+        ensureThreadOverviewRail();
+        return;
+      }
       plugins?.click();
       const startedAt = Date.now();
       const openSkillsTab = () => {
@@ -2032,12 +3587,24 @@
       };
       setTimeout(openSkillsTab, 50);
     };
-    const openAssetConsole = () => openAssetConsolePanel();
-    const assetConsoleItem = assetConsole.available ? {
-      name: assetConsole.label || "资产控制台",
+    const shortcutConsoleKind = assetConsole.label === "专项运营" && assetConsole.operationsAvailable
+      ? "operations"
+      : !assetConsole.assetAvailable && assetConsole.operationsAvailable
+      ? "operations"
+      : "asset";
+    const assetConsoleItem = (assetConsole.assetAvailable || assetConsole.operationsAvailable) ? {
+      name: shortcutConsoleKind === "operations" ? "专项运营" : assetConsole.label || "资产控制台",
       button: null,
       quickButton: null,
-      activate: openAssetConsole,
+      activate: () => {
+        if (shortcutConsoleKind === "operations"
+          && document.documentElement.getAttribute(COMPANY_WORKBENCH_MODE_ATTR) === "true") {
+          focusCompanyOperations();
+        } else {
+          openAssetConsolePanel(shortcutConsoleKind, { docked: false });
+        }
+      },
+      panelKind: shortcutConsoleKind,
       customStatus: true,
     } : null;
     const items = [
@@ -2049,7 +3616,7 @@
       assetConsoleItem || (search ? { name: "搜索", button: search, quickButton: null } : null),
     ].filter(Boolean).filter((item, index, values) =>
       item.name && values.findIndex((candidate) => candidate.name === item.name) === index,
-    ).slice(0, 6);
+    ).slice(0, 7);
     let navigationContainer = navigationGroup;
     while (navigationContainer.parentElement && navigationContainer.parentElement !== header) {
       navigationContainer = navigationContainer.parentElement;
@@ -2115,6 +3682,9 @@
     else if (fallbackName === "资产控制台") {
       host.innerHTML = `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 6.25h12v8.25H3zM4.25 3.5h9.5v2.75h-9.5zM6.25 9.25h5.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     }
+    else if (fallbackName === "专项运营") {
+      host.innerHTML = `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M4 3.5h10v11H4zM6.5 6.25h5M6.5 9h5M6.5 11.75h3" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/><path d="m12.1 11.7.65.65 1.35-1.55" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    }
     else if (image) host.appendChild(image);
     return host;
   }
@@ -2135,7 +3705,7 @@
     label.textContent = item.name;
     button.append(shortcutIcon(item.button, SHORTCUT_ICON_CLASS, item.name), label);
     button.onclick = () => {
-      if (item.name !== (assetConsole.label || "资产控制台")) closeAssetConsolePanel();
+      if (!item.panelKind) closeAssetConsolePanel();
       if (item.activate) item.activate();
       else item.button?.click();
     };
@@ -2165,8 +3735,8 @@
     if (!button) return;
     button.disabled = item.button?.disabled === true;
     const state = item.button?.getAttribute("data-state");
-    const active = (item.name === (assetConsole.label || "资产控制台")
-      && Boolean(document.getElementById(ASSET_CONSOLE_PANEL_ID)))
+    const panel = document.getElementById(ASSET_CONSOLE_PANEL_ID);
+    const active = (item.panelKind && !panel?.hidden && panel?.dataset.consoleKind === item.panelKind)
       || item.button?.getAttribute("aria-current") === "page"
       || item.button?.getAttribute("data-active") === "true"
       || state === "open" || state === "active" || state === "selected";
@@ -2186,8 +3756,54 @@
     }
   }
 
+  function shortcutLayout(items, compact) {
+    const available = compact ? items.filter((item) => item.panelKind !== "asset") : items;
+    const primary = compact ? available.filter((item) => item.name === "新对话" || item.panelKind) : available;
+    return { primary, overflow: compact ? available.filter((item) => !primary.includes(item)) : [] };
+  }
+
+  function createShortcutOverflow(items, grid) {
+    const details = document.createElement("details");
+    details.dataset.codexShortcutMore = "true";
+    const summary = document.createElement("summary");
+    summary.textContent = "⋯";
+    summary.setAttribute("aria-label", "更多快捷入口");
+    summary.title = "更多";
+    const content = document.createElement("div");
+    content.dataset.codexShortcutMoreItems = "true";
+    content.append(...items.map(createShortcutCard));
+    details.append(summary, content);
+    const close = (restoreFocus = false) => {
+      if (!details.open) return;
+      details.open = false;
+      if (restoreFocus) summary.focus();
+    };
+    content.addEventListener("click", (event) => {
+      if (event.target.closest("button")) close(details.contains(document.activeElement));
+    });
+    content.addEventListener("wheel", (event) => event.stopPropagation());
+    const controller = new AbortController();
+    grid.__codexShortcutMoreCleanup = () => controller.abort();
+    document.addEventListener("pointerdown", (event) => {
+      if (!details.contains(event.target)) close();
+    }, { signal: controller.signal, capture: true });
+    const handleEscape = (event) => {
+      if (event.key !== "Escape" || !details.open) return;
+      event.preventDefault();
+      event.stopPropagation();
+      close(true);
+    };
+    // Native window shortcuts can consume keydown before document capture.
+    for (const type of ["keydown", "keyup"]) {
+      document.addEventListener(type, handleEscape, { signal: controller.signal, capture: true });
+    }
+    return details;
+  }
+
   function clearShortcutEnhancement() {
-    document.getElementById(SHORTCUT_GRID_ID)?.remove();
+    const grid = document.getElementById(SHORTCUT_GRID_ID);
+    grid?.__codexShortcutMoreCleanup?.();
+    grid?.remove();
     document.querySelectorAll("[data-codex-sidebar-shortcut-source-hidden]").forEach((node) => {
       node.removeAttribute("data-codex-sidebar-shortcut-source-hidden");
     });
@@ -2206,10 +3822,13 @@
     if (!sources || sources.items.length < 2) return;
     let controls = ensureSidebarControlsHost(sources.header);
     if (!controls) return;
+    const compact = isTaskShell();
+    const layout = shortcutLayout(sources.items, compact);
     let grid = document.getElementById(SHORTCUT_GRID_ID);
     const needsRebuild = grid?.dataset.codexPreviewRuntime !== RUNTIME_TOKEN
       || grid?.parentElement !== controls
-      || grid?.children.length !== sources.items.length
+      || grid?.dataset.codexShortcutCompact !== String(compact)
+      || shortcutSources.size !== sources.items.length
       || sources.items.some((item) => shortcutSources.get(item.name) !== item.button);
     if (needsRebuild) {
       clearShortcutEnhancement();
@@ -2220,12 +3839,13 @@
       grid.setAttribute("role", "group");
       grid.setAttribute("aria-label", "快捷入口");
       grid.dataset.codexPreviewRuntime = RUNTIME_TOKEN;
-      grid.style.setProperty("--codex-sidebar-shortcut-columns", String(sources.items.length));
-      grid.replaceChildren(...sources.items.map(createShortcutCard));
+      grid.dataset.codexShortcutCompact = String(compact);
+      grid.replaceChildren(...layout.primary.map(createShortcutCard));
+      if (layout.overflow.length) grid.appendChild(createShortcutOverflow(layout.overflow, grid));
       controls.insertBefore(grid, controls.firstChild);
       shortcutSources = new Map(sources.items.map((item) => [item.name, item.button]));
     }
-    grid.style.setProperty("--codex-sidebar-shortcut-columns", String(sources.items.length));
+    grid.style.setProperty("--codex-sidebar-shortcut-columns", String(layout.primary.length || 1));
     sources.newConversationRow.setAttribute("data-codex-sidebar-shortcut-source-hidden", "true");
     sources.navigationGroup.setAttribute("data-codex-sidebar-shortcut-source-group-hidden", "true");
     sources.navigationContainer.setAttribute("data-codex-sidebar-shortcut-source-group-hidden", "true");
@@ -2383,6 +4003,7 @@
 
   function clearSectionEnhancement() {
     clearFolderEnhancement();
+    document.documentElement.removeAttribute(COMPANY_WORKBENCH_MODE_ATTR);
     restoreProjectActions();
     document.getElementById(SECTION_TABS_ID)?.remove();
     document.querySelectorAll("[data-codex-sidebar-section-heading-hidden]").forEach((heading) => {
@@ -2603,11 +4224,10 @@
       folderTogglePending.delete(item.id);
       return;
     }
-    const pending = folderTogglePending.get(item.id);
-    // Empty native folders stay collapsed after a click. Remember the request
-    // for this DOM node so mutation-driven syncs do not keep clicking it.
-    if (pending?.row === item.row) return;
-    folderTogglePending.set(item.id, { row: item.row, startedAt: Date.now() });
+    // React can replace the native row after a click. Keep the request by
+    // project id so mutation-driven syncs do not click the replacement again.
+    if (folderTogglePending.has(item.id)) return;
+    folderTogglePending.set(item.id, { startedAt: Date.now() });
     item.row.click();
   }
 
@@ -2697,6 +4317,1003 @@
     if (folderPreSearchId && folderSources.has(folderPreSearchId)) activeFolderId = folderPreSearchId;
     folderPreSearchId = null;
     updateFolderSwitcherState(Array.from(folderSources.values()));
+  }
+
+  function currentConversationThreadId() {
+    const composerId = document.querySelector(
+      '[data-codex-composer-root][data-composer-placement="thread"] [data-above-composer-conversation-id]',
+    )?.getAttribute("data-above-composer-conversation-id")
+      || document.querySelector("[data-above-composer-conversation-id]")
+        ?.getAttribute("data-above-composer-conversation-id");
+    return String(composerId || resolvedCurrentThreadSnapshot()?.threadId || "")
+      .replace(/^(?:local|cloud):/i, "");
+  }
+  function navigateToCodexThread(threadId) {
+    const route = homeProjectRoute(normalizedThreadId(threadId));
+    if (route) {
+      window.postMessage({ type: "navigate-to-route", path: route }, "*");
+      return true;
+    }
+    return false;
+  }
+  function readTaskColdArchive(threadId) {
+    try {
+      const paths = JSON.parse(localStorage.getItem("codex-workspace-enhancer:task-cold-archives-v1") || "{}");
+      const path = Object.hasOwn(paths, threadId) ? paths[threadId] : "";
+      return typeof path === "string" && isAbsoluteWindowsAssetPath(path) ? path : "";
+    } catch { return ""; }
+  }
+
+  function saveTaskColdArchive(threadId, path) {
+    if (!threadId || (path && (!isAbsoluteWindowsAssetPath(path) || path.length > 4096))) throw new Error("请填写完整的冷档案文件夹路径。");
+    const paths = JSON.parse(localStorage.getItem("codex-workspace-enhancer:task-cold-archives-v1") || "{}");
+    if (path) paths[threadId] = path;
+    else delete paths[threadId];
+    localStorage.setItem("codex-workspace-enhancer:task-cold-archives-v1", JSON.stringify(paths));
+  }
+
+  function coldHistoryRequest(path, keyword) {
+    if (!isAbsoluteWindowsAssetPath(path) || !keyword.trim()) return "";
+    return `请用 codex-thread-cold-history 按需检索此冷档案：${JSON.stringify(path)}。关键词：${JSON.stringify(keyword.trim().slice(0, 160))}。只查少量相关命中，保留记录号、时间与角色，不加载全部历史，不修改档案。`;
+  }
+
+  function createTaskColdSection() {
+    const section = document.createElement("section");
+    section.className = "codex-task-resources";
+    section.setAttribute("data-codex-task-cold", "");
+    section.dataset.resourceKind = "history";
+    section.innerHTML = `<details data-task-cold>
+        <summary>冷历史 <span data-task-cold-state></span></summary>
+        <p class="codex-task-hint">原文默认不加载，按关键词查找。</p>
+        <div data-task-linked-resources hidden>
+          <ul data-task-linked-list></ul>
+          <p class="codex-task-hint" role="status" data-task-linked-status></p>
+        </div>
+        <form data-task-cold-query>
+          <label>查找旧记录<input name="keyword" placeholder="输入 1–2 个关键词" maxlength="160" required></label>
+          <button type="submit">写入查档请求</button>
+          <p class="codex-task-hint">添加到输入框，由你发送。</p>
+        </form>
+        <details><summary>关联冷档案</summary>
+          <form data-task-cold-binding>
+            <label>档案文件夹<input name="path" placeholder="完整的本机文件夹路径" maxlength="4096" autocomplete="off"></label>
+            <button type="submit">保存关联</button>
+          </form>
+        </details>
+        <p role="status" data-task-cold-status></p>
+      </details>`;
+    const status = section.querySelector("[data-task-cold-status]");
+    const active = () => section.dataset.threadId === currentConversationThreadId();
+    section.querySelector("[data-task-cold-binding]").onsubmit = (event) => {
+      event.preventDefault();
+      if (!active()) return;
+      try {
+        saveTaskColdArchive(section.dataset.threadId, event.currentTarget.elements.path.value.trim());
+        section.dataset.coldPath = "";
+        renderTaskColdSection(section, section.taskResourcesSnapshot || { threadId: section.dataset.threadId });
+        status.textContent = "关联已保存；未读取历史原文。";
+      } catch (error) { status.textContent = error.message || "未能保存关联，请重试。"; }
+    };
+    section.querySelector("[data-task-cold-query]").onsubmit = (event) => {
+      event.preventDefault();
+      if (!active()) return;
+      const request = coldHistoryRequest(readTaskColdArchive(section.dataset.threadId), event.currentTarget.elements.keyword.value);
+      if (!request) { status.textContent = "请先关联冷档案，并填写关键词。"; return; }
+      status.textContent = addTextToComposer(request) ? "查档请求已放入输入框，尚未发送。" : "输入框暂不可用，请稍后重试。";
+    };
+    return section;
+  }
+
+  function renderTaskColdSection(section, snapshot) {
+    const changed = section.dataset.threadId !== snapshot.threadId;
+    section.dataset.threadId = snapshot.threadId;
+    section.taskResourcesSnapshot = snapshot;
+    renderTaskLinkedResources(section, snapshot);
+    const path = readTaskColdArchive(snapshot.threadId);
+    if (changed || section.dataset.coldPath !== path) {
+      section.dataset.coldPath = path;
+      section.querySelector("[data-task-cold-binding]").elements.path.value = path;
+      section.querySelector("[data-task-cold-query]").hidden = !path;
+      section.querySelector("[data-task-cold-state]").textContent = path ? "已关联" : "未关联";
+    }
+    if (changed) {
+      section.querySelector("[data-task-cold-query]").reset();
+      section.querySelector("[data-task-cold-status]").textContent = "";
+      section.querySelector("[data-task-cold]").open = false;
+    }
+  }
+
+  function taskResourceReferenceRequest(reference) {
+    if (reference?.kind === "history" && isAbsoluteWindowsAssetPath(reference.archivePath)) {
+      const lookup = Number.isSafeInteger(reference.recordId) && reference.recordId >= 0
+        ? `只查看记录 ${reference.recordId}` : "按 1–2 个关键词检索少量相关记录；请先向我确认关键词";
+      return `请用 codex-thread-cold-history 查此冷档案：${JSON.stringify(reference.archivePath)}；${lookup}。保留记录号、时间与角色，不加载全部历史，不修改档案。`;
+    }
+    if (reference?.kind === "asset" && isAbsoluteWindowsAssetPath(reference.path)) {
+      const ticket = reference.ticketId ? `\n票据 ID：${reference.ticketId}` : "";
+      const output = reference.outputId ? `\n输出 ID：${reference.outputId}` : "";
+      return `引用资产：\n${reference.path}${ticket}${output}`;
+    }
+    return "";
+  }
+
+  function decorateTaskResourceButton(button, label, action, path, history = false) {
+    const kind = document.createElement("span");
+    kind.className = "codex-task-resource-kind";
+    kind.textContent = history ? "记录" : (String(path || "").match(/\.([a-z0-9]{1,5})$/i)?.[1]?.toUpperCase() || "图片");
+    const copy = document.createElement("span");
+    copy.className = "codex-task-resource-copy";
+    const title = document.createElement("strong");
+    title.textContent = label;
+    const detail = document.createElement("small");
+    detail.textContent = action;
+    copy.append(title, detail);
+    button.append(kind, copy);
+  }
+
+  function renderTaskLinkedResources(section, snapshot) {
+    const threadId = normalizedThreadId(snapshot.threadId);
+    const context = taskContextForSnapshot(snapshot);
+    const kind = section.dataset.resourceKind || "asset";
+    const references = Array.isArray(context?.references) ? context.references.filter((item) => item.kind === kind && taskResourceReferenceRequest(item)) : [];
+    if (kind === "asset") {
+      const binding = context?.assetBinding;
+      section.querySelector("[data-task-asset-binding]").textContent = context
+        ? context.referenceStatus?.includes("项目绑定读取失败") ? "项目绑定暂不可读" : binding?.projectId ? `已绑定项目：${binding.projectName || binding.projectId}` : "未绑定项目资产"
+        : "跟随当前任务的项目绑定";
+      const health = section.querySelector("[data-task-reference-health]");
+      health.textContent = context?.referenceStatus || "";
+      health.hidden = !health.textContent;
+    }
+    section.querySelector("[data-task-linked-resources]").hidden = references.length === 0;
+    const signature = JSON.stringify([threadId, references]);
+    if (section.dataset.linkedSignature === signature) return;
+    section.dataset.linkedSignature = signature;
+    const status = section.querySelector("[data-task-linked-status]");
+    status.textContent = "";
+    section.querySelector("[data-task-linked-list]").replaceChildren(...references.map((reference) => {
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      decorateTaskResourceButton(button, reference.label || (reference.kind === "history" ? "冷历史记录" : "资产引用"), reference.kind === "history" ? "引用旧记录" : "引用此资产", reference.path, reference.kind === "history");
+      button.title = `${reference.archivePath || reference.path} · 添加到输入框，不发送`;
+      button.onclick = () => {
+        if (normalizedThreadId(currentConversationThreadId()) !== threadId || normalizedThreadId(section.dataset.threadId) !== threadId) return;
+        const current = taskContextForSnapshot(section.taskResourcesSnapshot);
+        if (!current || !Array.isArray(current.references) || !current.references.some((item) => JSON.stringify(item) === JSON.stringify(reference))) return;
+        status.textContent = addTextToComposer(taskResourceReferenceRequest(reference))
+          ? "引用已放入输入框，尚未发送。" : "输入框暂不可用，请稍后重试。";
+      };
+      item.append(button);
+      return item;
+    }));
+  }
+
+  function taskOverviewPresentation(snapshot) {
+    const nextStep = cleanTaskPreviewText(snapshot.nextStep);
+    return {
+      summary: cleanTaskPreviewText(snapshot.latestAnswer || snapshot.progress || snapshot.summary) || "尚无答复摘录",
+      summaryLabel: snapshot.latestAnswer ? "最近答复摘录" : "近期答复摘录",
+      nextStep: /^(?:等待你的下一条要求|等待下一条要求|完成当前要求[：:]|继续处理当前要求[：:])/u.test(nextStep) ? "" : nextStep,
+      status: snapshot.running ? "进行中" : snapshot.status === "待继续" ? "待继续" : "空闲",
+    };
+  }
+
+  function applyOverviewVisibility(rail) {
+    const collapsed = isTaskShell() && overviewCollapsed;
+    rail.dataset.collapsed = String(collapsed);
+    for (const button of rail.querySelectorAll("[data-codex-thread-overview-collapse], [data-codex-thread-overview-expand]")) {
+      if (button.getAttribute("aria-expanded") !== String(!collapsed)) button.setAttribute("aria-expanded", String(!collapsed));
+    }
+  }
+
+  function toggleThreadOverview() {
+    overviewCollapsed = !overviewCollapsed;
+    try { localStorage.setItem(OVERVIEW_COLLAPSED_KEY, String(overviewCollapsed)); } catch {}
+    const rail = document.getElementById(THREAD_OVERVIEW_RAIL_ID);
+    if (!rail) return;
+    applyOverviewVisibility(rail);
+    rail.querySelector(overviewCollapsed ? "[data-codex-thread-overview-expand]" : "[data-codex-thread-overview-collapse]").focus();
+  }
+
+  function readTaskNotesStore() {
+    const value = JSON.parse(localStorage.getItem("codex-workspace-enhancer:task-notes-v1") || "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("笔记格式无效");
+    return value;
+  }
+
+  function taskContextForSnapshot(snapshot) {
+    const normalize = (id) => String(id || "").replace(/^(?:local|cloud):/iu, "").toLowerCase();
+    const context = snapshot?.taskContext;
+    const id = normalize(snapshot?.threadId);
+    return id && context && normalize(context.threadId) === id ? context : null;
+  }
+
+  function taskSkillRequest(entry) {
+    return entry;
+  }
+
+  function taskSkillComposerController() {
+    const editor = document.querySelector('[data-composer-placement="thread"] [contenteditable="true"]');
+    for (let element = editor; element; element = element.parentElement) {
+      const key = Object.keys(element).find((key) => key.startsWith("__reactFiber$"));
+      if (!key) continue;
+      for (let fiber = element[key]; fiber; fiber = fiber.return) {
+        const controller = fiber.memoizedProps?.composerController;
+        if (controller?.view?.dom === editor && controller.view.state?.schema?.nodes?.skillMention) return controller;
+      }
+      break;
+    }
+    return null;
+  }
+
+  function taskComposerSkills(controller) {
+    const entries = [];
+    controller?.view.state.doc.descendants((node, pos) => {
+      if (node.type.name === "skillMention" && node.attrs.path) entries.push({ ...node.attrs, pos, nodeSize: node.nodeSize });
+    });
+    return entries;
+  }
+
+  function addNativeTaskSkill(entry) {
+    const controller = taskSkillComposerController();
+    if (!controller || !entry?.path || !entry.name || entry.enabled === false) return false;
+    if (taskComposerSkills(controller).some((item) => item.path === entry.path)) return true;
+    const { state } = controller.view;
+    const type = state.schema.nodes.skillMention;
+    const mention = type.create({ name: entry.name, displayName: entry.title || entry.name, path: entry.path, description: entry.description || "" });
+    let position = null;
+    state.doc.descendants((node, pos) => {
+      if (position === null && node.isTextblock && node.type.contentMatch.matchType(type)) position = pos + 1;
+      return position === null;
+    });
+    const transaction = position === null
+      ? state.tr.insert(state.doc.content.size, state.schema.nodes.paragraph.create(null, mention))
+      : state.tr.insert(position, mention);
+    controller.view.dispatch(transaction);
+    ensureTaskSkillComposerChips();
+    return true;
+  }
+
+  function removeNativeTaskSkill(path, threadId) {
+    if (normalizedThreadId(currentConversationThreadId()) !== normalizedThreadId(threadId)) return;
+    const controller = taskSkillComposerController();
+    if (!controller) return;
+    const entries = taskComposerSkills(controller).filter((entry) => entry.path === path);
+    if (!entries.length) return;
+    const transaction = controller.view.state.tr;
+    for (const entry of entries.reverse()) transaction.delete(entry.pos, entry.pos + entry.nodeSize);
+    controller.view.dispatch(transaction);
+    ensureTaskSkillComposerChips();
+  }
+
+  function ensureTaskSkillComposerChips() {
+    const id = "codex-task-skill-composer-chips";
+    const portal = document.querySelector('[data-codex-composer-root][data-composer-placement="thread"] > [data-above-composer-portal="true"]');
+    const entries = taskComposerSkills(taskSkillComposerController());
+    let container = document.getElementById(id);
+    if (!isTaskShell() || !portal || !entries.length) {
+      if (container && !entries.length) {
+        const status = document.querySelector("[data-task-skill-status]");
+        if (status?.textContent.startsWith("已选中技能")) status.textContent = "选中后显示在输入框上方，随消息使用。";
+      }
+      container?.remove();
+      return;
+    }
+    if (!container || container.parentElement !== portal) {
+      container?.remove();
+      container = document.createElement("div");
+      container.id = id;
+      container.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;padding:6px 12px";
+      portal.append(container);
+    }
+    const threadId = currentConversationThreadId();
+    const unique = [...new Map(entries.map((entry) => [entry.path, entry])).values()];
+    const signature = JSON.stringify([threadId, unique.map((entry) => [entry.path, entry.displayName, entry.name])]);
+    if (container.skillSignature === signature) return;
+    container.skillSignature = signature;
+    container.replaceChildren();
+    const style = document.createElement("style");
+    style.textContent = '[data-composer-placement="thread"] [contenteditable="true"] [skill-mention-path]{display:none!important}';
+    container.append(style);
+    for (const entry of unique) {
+      const chip = document.createElement("span");
+      chip.style.cssText = "display:inline-flex;align-items:center;gap:7px;max-width:100%;border:1px solid var(--border-default,#8885);border-radius:8px;padding:3px 7px;font-size:12px";
+      const label = document.createElement("span");
+      label.textContent = entry.displayName || entry.name;
+      label.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+      chip.title = entry.path;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", `移除技能：${label.textContent}`);
+      remove.onclick = () => removeNativeTaskSkill(entry.path, threadId);
+      chip.append(label, remove);
+      container.append(chip);
+    }
+  }
+
+  function createTaskSkillsSection() {
+    const section = document.createElement("section");
+    section.setAttribute("data-codex-task-skills", "");
+    section.innerHTML = `
+      <div class="codex-task-skills-heading"><h3>默认执行</h3><span>约定，非加载状态</span></div>
+      <div data-task-skill-defaults class="codex-task-skill-defaults"></div>
+      <div class="codex-task-skills-heading"><h3>Skill 管理</h3><button type="button" data-task-skill-refresh>刷新</button></div>
+      <input type="search" data-task-skill-search aria-label="搜索技能" placeholder="搜索所有技能" autocomplete="off">
+      <div class="codex-task-skill-filters">
+        ${SKILL_FILTERS.map((filter) => `<button type="button" data-task-skill-filter="${escapeSkillLabel(filter)}" aria-pressed="${filter === "常用"}">${escapeSkillLabel(filter)}</button>`).join("")}
+      </div>
+      <div class="codex-task-skill-summary"><p data-task-skill-status role="status">选中后显示在输入框上方，随消息使用。</p><span data-task-skill-count></span></div>
+      <div data-task-skill-list></div>`;
+    section.skillFilter = "常用";
+    section.querySelector("[data-task-skill-search]").oninput = () => renderTaskSkillList(section);
+    section.querySelectorAll("[data-task-skill-filter]").forEach((button) => {
+      button.onclick = () => {
+        section.skillFilter = button.dataset.taskSkillFilter;
+        renderTaskSkillList(section);
+      };
+    });
+    section.querySelector("[data-task-skill-refresh]").onclick = () => {
+      section.querySelector("[data-task-skill-status]").textContent = "正在刷新技能目录…";
+      requestTaskSkillCatalog(true);
+    };
+    return section;
+  }
+
+  function addTaskSkillRequest(section, threadId, text) {
+    if (!section.isConnected || normalizedThreadId(currentConversationThreadId()) !== normalizedThreadId(threadId)) return;
+    section.querySelector("[data-task-skill-status]").textContent = addNativeTaskSkill(text)
+      ? "已选中技能，随你的下一条消息使用。" : "当前输入框暂不支持技能附件。";
+  }
+
+  function renderTaskSkillList(section) {
+    const entries = taskSkillCatalog?.entries || [];
+    const favorites = entries.length ? loadSkillFavorites(entries) : new Set();
+    const query = normalizedSkillText(section.querySelector("[data-task-skill-search]").value);
+    const signature = JSON.stringify([section.threadId, section.skillFilter, query, [...favorites]]);
+    if (section.skillListSignature === signature && section.skillListCatalog === taskSkillCatalog) return;
+    section.skillListSignature = signature;
+    section.skillListCatalog = taskSkillCatalog;
+    const visible = entries.filter((entry) => {
+      const description = SKILL_DESCRIPTION_OVERRIDES.get(entry.title) || entry.description;
+      return query ? normalizedSkillText(`${entry.title} ${entry.name} ${description}`).includes(query)
+        : skillCategoryMatches(entry, section.skillFilter);
+    });
+    section.querySelectorAll("[data-task-skill-filter]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.taskSkillFilter === section.skillFilter));
+    });
+    section.querySelector("[data-task-skill-count]").textContent = `${visible.length} / ${entries.length}`;
+    const list = section.querySelector("[data-task-skill-list]");
+    list.replaceChildren();
+    if (!visible.length) {
+      const empty = document.createElement("p");
+      empty.textContent = !taskSkillCatalog ? "正在读取技能目录…" : taskSkillCatalog.error || (query ? "没有匹配的技能。" : section.skillFilter === "常用" ? "暂无常用技能，在全部中点 ☆ 收藏。" : "此分类暂无技能。");
+      list.append(empty);
+    }
+    const threadId = section.threadId;
+    const groups = query ? [] : groupedSkillEntries(visible, section.skillFilter);
+    const containers = new Map();
+    for (const group of groups) {
+      const container = document.createElement("details");
+      container.className = "codex-task-skill-group";
+      container.open = true;
+      const heading = document.createElement("summary");
+      heading.textContent = `${group.label} · ${group.entries.length}`;
+      container.append(heading);
+      for (const entry of group.entries) containers.set(entry, container);
+      list.append(container);
+    }
+    for (const entry of visible) {
+      const row = document.createElement("div");
+      row.className = "codex-task-skill-row";
+      const invoke = document.createElement("button");
+      invoke.type = "button";
+      invoke.className = "codex-task-skill-invoke";
+      invoke.disabled = entry.enabled === false;
+      invoke.title = entry.enabled === false ? "此技能已停用" : "选择技能";
+      invoke.setAttribute("aria-label", `${invoke.title}：${entry.title}`);
+      const title = document.createElement("strong");
+      title.textContent = entry.title;
+      const description = document.createElement("span");
+      description.textContent = SKILL_DESCRIPTION_OVERRIDES.get(entry.title) || entry.description || entry.name;
+      invoke.append(title, description);
+      invoke.onclick = () => addTaskSkillRequest(section, threadId, taskSkillRequest(entry));
+      const favorite = document.createElement("button");
+      favorite.type = "button";
+      favorite.className = "codex-task-skill-star";
+      favorite.textContent = favorites.has(entry.title) ? "★" : "☆";
+      favorite.setAttribute("aria-label", `${favorites.has(entry.title) ? "取消常用" : "加入常用"}：${entry.title}`);
+      favorite.setAttribute("aria-pressed", String(favorites.has(entry.title)));
+      favorite.onclick = () => {
+        if (favorites.has(entry.title)) favorites.delete(entry.title);
+        else favorites.add(entry.title);
+        saveSkillFavorites();
+        renderTaskSkillList(section);
+        skillOrganizerRenderSignature = "";
+        renderSkillOrganizer();
+      };
+      row.append(invoke, favorite);
+      (containers.get(entry) || list).append(row);
+    }
+  }
+
+  function renderTaskSkillsSection(section, snapshot) {
+    const threadId = normalizedThreadId(snapshot.threadId);
+    if (section.threadId !== threadId) {
+      section.threadId = threadId;
+      section.querySelector("[data-task-skill-status]").textContent = "选中后显示在输入框上方，随消息使用。";
+    }
+    const defaults = taskContextForSnapshot(snapshot)?.agreements.filter((value) => value.startsWith("默认执行 · ")) || [];
+    const signature = JSON.stringify([threadId, defaults]);
+    if (section.defaultsSignature !== signature) {
+      section.defaultsSignature = signature;
+      const list = section.querySelector("[data-task-skill-defaults]");
+      list.replaceChildren();
+      for (const value of defaults) {
+        const text = value.replace(/^默认执行 · /u, "");
+        const chip = document.createElement("span");
+        chip.textContent = text.split(/[（：]/u)[0];
+        chip.title = text;
+        list.append(chip);
+      }
+      if (!defaults.length) list.textContent = "此任务尚未记录默认执行约定。";
+    }
+    requestTaskSkillCatalog();
+    renderTaskSkillList(section);
+  }
+
+  function setSkillCatalog(value) {
+    taskSkillCatalog = value && Array.isArray(value.entries) ? value : { entries: [], error: "技能目录不可用，请刷新。" };
+    const section = document.querySelector("[data-codex-task-skills]");
+    if (section) {
+      section.querySelector("[data-task-skill-status]").textContent = taskSkillCatalog.error || "选中后显示在输入框上方，随消息使用。";
+      renderTaskSkillList(section);
+    }
+  }
+
+  function requestTaskSkillCatalog(forceReload = false) {
+    const threadId = normalizedThreadId(currentConversationThreadId());
+    const cwd = normalizedThreadId(threadOverview?.threadId) === threadId ? threadOverview?.cwd : null;
+    const key = threadId && typeof cwd === "string" && cwd ? `${threadId}\n${cwd}` : "";
+    if (!forceReload && key && taskSkillCatalogKey === key) return;
+    taskSkillRequestCleanup?.();
+    taskSkillCatalogKey = key;
+    if (!key) {
+      setSkillCatalog({ entries: [], error: "正在读取当前任务目录，请稍后刷新。" });
+      return;
+    }
+    const id = `enhancer-skills-${crypto.randomUUID()}`;
+    let timer;
+    const cleanup = () => {
+      clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      if (taskSkillRequestCleanup === cleanup) taskSkillRequestCleanup = null;
+    };
+    const finish = (value) => {
+      if (taskSkillRequestCleanup !== cleanup) return;
+      cleanup();
+      if (destroyed || normalizedThreadId(currentConversationThreadId()) !== threadId
+        || threadOverview?.cwd !== cwd) {
+        if (taskSkillCatalogKey === key) taskSkillCatalogKey = "";
+        return;
+      }
+      setSkillCatalog(value);
+    };
+    const onMessage = (event) => {
+      const message = event.data;
+      if (message?.type !== "mcp-response" || message.hostId !== "local" || message.message?.id !== id) return;
+      const response = message.message;
+      if (response.error || !Array.isArray(response.result?.data)) {
+        finish({ entries: [], error: "技能目录读取失败，请刷新重试。" });
+        return;
+      }
+      const entries = response.result.data.flatMap((group) => (group.skills || []).map((entry) => ({
+        name: entry.name,
+        title: entry.interface?.displayName || entry.name,
+        description: entry.interface?.shortDescription || entry.shortDescription || entry.description || "",
+        path: entry.path,
+        enabled: entry.enabled !== false,
+      })));
+      const hasErrors = response.result.data.some((group) => group.errors?.length);
+      finish({ entries, ...(hasErrors ? { error: "部分技能未能读取，可刷新重试。" } : {}) });
+    };
+    taskSkillRequestCleanup = cleanup;
+    setSkillCatalog({ entries: [], error: "正在读取技能目录…" });
+    window.addEventListener("message", onMessage);
+    timer = setTimeout(() => finish({ entries: [], error: "技能目录读取超时，请刷新重试。" }), 15_000);
+    try {
+      Promise.resolve(window.electronBridge.sendMessageFromView({
+        type: "mcp-request",
+        hostId: "local",
+        request: { id, method: "skills/list", params: { cwds: [cwd], ...(forceReload ? { forceReload: true } : {}) } },
+        source: "skills",
+        priority: "background",
+      })).catch(() => finish({ entries: [], error: "技能目录连接失败，请刷新重试。" }));
+    } catch {
+      finish({ entries: [], error: "技能目录连接不可用，请刷新重试。" });
+    }
+  }
+
+  function createTaskAutoContextSection() {
+    const section = document.createElement("section");
+    section.setAttribute("data-codex-task-auto-context", "");
+    for (const [key, label] of [["goal", "当前目标"], ["progress", "最新进展"], ["nextStep", "下一步"]]) {
+      const field = document.createElement("section");
+      const heading = document.createElement("h3");
+      heading.textContent = label;
+      const text = document.createElement("p");
+      text.setAttribute(`data-codex-task-auto-${key}`, "");
+      field.append(heading, text);
+      section.append(field);
+    }
+    const fixed = document.createElement("details");
+    const heading = document.createElement("summary");
+    heading.textContent = "固定约定";
+    const agreements = document.createElement("ul");
+    agreements.setAttribute("data-codex-task-auto-agreements", "");
+    fixed.append(heading, agreements);
+    const updated = document.createElement("p");
+    updated.className = "codex-task-hint";
+    updated.setAttribute("data-codex-task-auto-updated", "");
+    section.append(fixed, updated);
+    section.hidden = true;
+    return section;
+  }
+
+  function renderTaskAutoContextSection(section, snapshot) {
+    const context = taskContextForSnapshot(snapshot);
+    section.hidden = !context;
+    if (!context) return;
+    for (const [key, fallback] of [["goal", "尚未记录目标"], ["progress", "尚未记录进展"], ["nextStep", "暂无待办"]]) {
+      const node = section.querySelector(`[data-codex-task-auto-${key}]`);
+      const value = context[key] || fallback;
+      if (node.textContent !== value) node.textContent = value;
+    }
+    const list = section.querySelector("[data-codex-task-auto-agreements]");
+    const values = context.agreements.length ? context.agreements : ["暂无固定约定"];
+    const signature = JSON.stringify(values);
+    if (section.taskAgreementSignature !== signature) {
+      list.replaceChildren(...values.map((value) => {
+        const item = document.createElement("li");
+        item.textContent = value;
+        return item;
+      }));
+      section.taskAgreementSignature = signature;
+    }
+    const updated = section.querySelector("[data-codex-task-auto-updated]");
+    const label = `随进展更新 · ${new Date(context.updatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
+    if (updated.textContent !== label) updated.textContent = label;
+  }
+
+  function createTaskNotesSection() {
+    const section = document.createElement("section");
+    section.className = "codex-task-notes";
+    section.setAttribute("data-codex-task-notes", "");
+    section.taskNotesDrafts = createTaskNotesSection.drafts ||= new Map();
+    const view = document.createElement("div");
+    view.setAttribute("data-codex-task-notes-view", "");
+    const empty = document.createElement("p");
+    empty.className = "codex-task-notes-empty";
+    empty.setAttribute("data-codex-task-notes-empty", "");
+    empty.textContent = "还没有笔记，可记录已确认结论与下一步。";
+    const editor = document.createElement("div");
+    editor.setAttribute("data-codex-task-notes-editor", "");
+    for (const [key, labelText] of [["conclusion", "已确认结论"], ["nextStep", "下一步"]]) {
+      const heading = document.createElement("h3");
+      heading.textContent = labelText;
+      const text = document.createElement("p");
+      text.setAttribute(`data-codex-task-note-${key}`, "");
+      view.append(heading, text);
+      const label = document.createElement("label");
+      label.textContent = labelText;
+      const input = document.createElement("textarea");
+      input.maxLength = 4000;
+      input.rows = 4;
+      input.setAttribute(`data-codex-task-note-input-${key}`, "");
+      input.oninput = () => {
+        const draft = section.taskNotesDrafts.get(section.taskNotesSnapshot?.threadId);
+        if (draft) draft[key] = input.value;
+      };
+      label.appendChild(input);
+      editor.appendChild(label);
+    }
+    const actions = document.createElement("div");
+    actions.className = "codex-task-actions";
+    for (const [action, label, handler] of [
+      ["edit", "编辑笔记", () => editTaskNotes(section, section.taskNotesSnapshot)],
+      ["save", "保存", () => saveTaskNotes(section)],
+      ["cancel", "取消", () => cancelTaskNotes(section)],
+      ["excerpt", "摘录填入草稿", () => {
+        const snapshot = section.taskNotesSnapshot;
+        editTaskNotes(section, snapshot);
+        const draft = section.taskNotesDrafts.get(snapshot?.threadId);
+        if (!draft) return;
+        const excerpt = cleanTaskPreviewText(snapshot.latestAnswer || snapshot.progress);
+        draft.conclusion = [draft.conclusion, excerpt].filter(Boolean).join("\n\n").slice(0, 4000);
+        renderTaskNotesSection(section, snapshot);
+      }],
+    ]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.setAttribute(`data-codex-task-notes-${action}`, "");
+      button.onclick = handler;
+      actions.appendChild(button);
+    }
+    const error = document.createElement("p");
+    error.setAttribute("data-codex-task-notes-error", "");
+    error.setAttribute("role", "alert");
+    section.append(empty, view, editor, actions, error);
+    renderTaskNotesSection(section, {});
+    return section;
+  }
+
+  function renderTaskNotesSection(section, snapshot) {
+    section.taskNotesSnapshot = snapshot || {};
+    const threadId = snapshot?.threadId;
+    let saved = {};
+    let error = "";
+    try { saved = readTaskNotesStore()[threadId] || {}; }
+    catch { error = "读取笔记失败，请稍后重试。"; }
+    const draft = section.taskNotesDrafts.get(threadId);
+    const editing = Boolean(threadId && draft?.editing);
+    const hasNotes = Boolean(saved.conclusion?.trim() || saved.nextStep?.trim());
+    const view = section.querySelector("[data-codex-task-notes-view]");
+    const editor = section.querySelector("[data-codex-task-notes-editor]");
+    const empty = section.querySelector("[data-codex-task-notes-empty]");
+    const automatic = Boolean(taskContextForSnapshot(snapshot));
+    if (empty.hidden !== (editing || hasNotes || automatic)) empty.hidden = editing || hasNotes || automatic;
+    const editButton = section.querySelector("[data-codex-task-notes-edit]");
+    const editLabel = automatic ? "补充 / 纠正" : "编辑笔记";
+    if (editButton.textContent !== editLabel) editButton.textContent = editLabel;
+    if (view.hidden !== (editing || !hasNotes)) view.hidden = editing || !hasNotes;
+    if (editor.hidden !== !editing) editor.hidden = !editing;
+    for (const key of ["conclusion", "nextStep"]) {
+      const text = section.querySelector(`[data-codex-task-note-${key}]`);
+      const savedText = saved[key] || "暂无";
+      const className = saved[key] ? "" : "codex-task-note-empty";
+      if (text.textContent !== savedText) text.textContent = savedText;
+      if (text.className !== className) text.className = className;
+      const input = section.querySelector(`[data-codex-task-note-input-${key}]`);
+      const value = (editing ? draft[key] : saved[key]) || "";
+      if (input.value !== value) input.value = value;
+    }
+    for (const action of ["edit", "save", "cancel", "excerpt"]) {
+      const button = section.querySelector(`[data-codex-task-notes-${action}]`);
+      const hidden = action === "edit" ? editing : !editing;
+      if (button.hidden !== hidden) button.hidden = hidden;
+      if (button.disabled !== !threadId) button.disabled = !threadId;
+    }
+    const errorNode = section.querySelector("[data-codex-task-notes-error]");
+    const errorText = draft?.error || error;
+    if (errorNode.textContent !== errorText) errorNode.textContent = errorText;
+  }
+
+  function editTaskNotes(section, snapshot) {
+    const threadId = snapshot?.threadId;
+    if (!threadId) return;
+    let draft = section.taskNotesDrafts.get(threadId);
+    if (!draft?.editing) {
+      try {
+        const saved = readTaskNotesStore()[threadId] || {};
+        draft = { conclusion: saved.conclusion || "", nextStep: saved.nextStep || "", editing: true };
+      } catch {
+        renderTaskNotesSection(section, snapshot);
+        return;
+      }
+      section.taskNotesDrafts.set(threadId, draft);
+    }
+    renderTaskNotesSection(section, snapshot);
+    section.querySelector("[data-codex-task-note-input-conclusion]").focus();
+  }
+
+  function saveTaskNotes(section) {
+    const snapshot = section.taskNotesSnapshot;
+    const draft = section.taskNotesDrafts.get(snapshot?.threadId);
+    if (!snapshot?.threadId || !draft?.editing) return;
+    try {
+      const store = readTaskNotesStore();
+      store[snapshot.threadId] = { conclusion: draft.conclusion.slice(0, 4000), nextStep: draft.nextStep.slice(0, 4000) };
+      localStorage.setItem("codex-workspace-enhancer:task-notes-v1", JSON.stringify(store));
+      section.taskNotesDrafts.delete(snapshot.threadId);
+    } catch {
+      draft.error = "保存失败，草稿仍保留，请重试。";
+    }
+    renderTaskNotesSection(section, snapshot);
+  }
+
+  function cancelTaskNotes(section) {
+    section.taskNotesDrafts.delete(section.taskNotesSnapshot?.threadId);
+    renderTaskNotesSection(section, section.taskNotesSnapshot);
+    section.querySelector("[data-codex-task-notes-edit]").focus();
+  }
+
+  function createTaskExcerptSection() {
+    const section = document.createElement("details");
+    section.className = "codex-task-excerpt";
+    section.setAttribute("data-codex-task-excerpt", "");
+    section.taskExcerptStates = createTaskExcerptSection.states ||= new Map();
+    const heading = document.createElement("summary");
+    heading.setAttribute("data-codex-task-excerpt-label", "");
+    const text = document.createElement("p");
+    text.setAttribute("data-codex-task-excerpt-text", "");
+    section.append(heading, text);
+    section.ontoggle = () => {
+      if (section.taskExcerptThreadId) section.taskExcerptStates.set(section.taskExcerptThreadId, section.open);
+    };
+    return section;
+  }
+
+  function renderTaskExcerptSection(section, snapshot) {
+    if (section.taskExcerptThreadId !== snapshot.threadId) {
+      if (section.taskExcerptThreadId) section.taskExcerptStates.set(section.taskExcerptThreadId, section.open);
+      section.taskExcerptThreadId = snapshot.threadId;
+      section.open = section.taskExcerptStates.get(snapshot.threadId) || false;
+    }
+    const presentation = taskOverviewPresentation(snapshot);
+    for (const [attribute, value] of [["label", presentation.summaryLabel], ["text", presentation.summary]]) {
+      const node = section.querySelector(`[data-codex-task-excerpt-${attribute}]`);
+      if (node.textContent !== value) node.textContent = value;
+    }
+  }
+
+  function createThreadOverviewRail() {
+    const rail = document.createElement("aside");
+    rail.id = THREAD_OVERVIEW_RAIL_ID;
+    rail.dataset.codexPreviewRuntime = RUNTIME_TOKEN;
+    rail.setAttribute("aria-label", "当前线程整体概述");
+    rail.innerHTML = `
+      <button type="button" data-codex-thread-overview-expand aria-label="展开任务上下文" aria-controls="codex-company-master-view" title="展开任务上下文">‹<span>上下文</span></button>
+      <div id="codex-company-master-view" data-codex-company-master-view>
+      <div class="codex-thread-overview-header">
+        <span class="codex-thread-overview-mark" aria-hidden="true"></span>
+        <h2 data-codex-thread-overview-heading>线程概述</h2>
+        <span data-codex-thread-overview-status></span>
+        <button type="button" data-codex-thread-overview-collapse aria-label="收起任务上下文" aria-controls="codex-company-master-view" title="收起任务上下文">›</button>
+      </div>
+      <div class="codex-thread-overview-body" aria-live="polite">
+        <p class="codex-thread-overview-title" data-codex-thread-overview-title></p>
+        <div data-codex-task-context-extras></div>
+        <section class="codex-thread-overview-card" data-codex-thread-default-summary>
+          <span class="codex-thread-overview-label" data-codex-thread-summary-label>总结</span>
+          <p data-codex-thread-overview-summary></p>
+        </section>
+        <section class="codex-thread-overview-card" data-kind="next" data-codex-thread-default-summary>
+          <span class="codex-thread-overview-label" data-codex-thread-next-label>接下来</span>
+          <p data-codex-thread-overview-next></p>
+        </section>
+        <section class="codex-thread-overview-card codex-thread-master-current" data-codex-thread-master-only data-codex-thread-master-current>
+          <span class="codex-thread-overview-label">主控进展</span>
+          <div data-codex-thread-master-current-content></div>
+        </section>
+        <section class="codex-thread-overview-card" data-codex-thread-master-only>
+          <span class="codex-thread-overview-label">关键时间</span>
+          <ul class="codex-thread-master-time-list" data-codex-thread-master-time-list></ul>
+          <p data-codex-thread-master-time-empty>暂无带明确时间的信息</p>
+        </section>
+        <details class="codex-thread-master-summary" data-codex-thread-master-only>
+          <summary>查看线程总结</summary>
+          <p data-codex-thread-master-summary></p>
+        </details>
+        <span data-codex-thread-overview-meta></span>
+      </div>
+      <button type="button" data-codex-thread-add-memo>加入未完成工作</button>
+      </div>
+      `;
+    const tabs = document.createElement("nav");
+    tabs.setAttribute("data-codex-task-rail-tabs", "");
+    tabs.setAttribute("aria-label", "右栏内容");
+    for (const [key, label] of [["context", "上下文"], ["skills", "Skills"], ["assets", "资产"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.dataset.taskRailTab = key;
+      button.onclick = () => { taskRailTab = key; ensureThreadOverviewRail(); rail.querySelector(".codex-thread-overview-body").scrollTop = 0; };
+      tabs.append(button);
+    }
+    const body = rail.querySelector(".codex-thread-overview-body");
+    rail.querySelector(".codex-thread-overview-header").prepend(tabs);
+    const assets = document.createElement("div");
+    assets.setAttribute("data-codex-task-assets", "");
+    const assetHost = document.createElement("div");
+    assetHost.setAttribute("data-task-asset-console-host", "");
+    assets.append(assetHost);
+    body.prepend(createTaskSkillsSection(), assets);
+    rail.querySelector("[data-codex-task-context-extras]").append(createTaskAutoContextSection(), createTaskNotesSection(), createTaskColdSection(), createTaskExcerptSection());
+    rail.querySelector("[data-codex-thread-add-memo]").onclick = () => {
+      if (isTaskShell()) editTaskNotes(rail.querySelector("[data-codex-task-notes]"), resolvedCurrentThreadSnapshot());
+
+    };
+    rail.querySelector("[data-codex-thread-overview-expand]").onclick = toggleThreadOverview;
+    rail.querySelector("[data-codex-thread-overview-collapse]").onclick = toggleThreadOverview;
+    rail.querySelectorAll("[data-codex-company-workstream]").forEach((button) => {
+      button.onclick = () => openCompanyOperations(button.dataset.codexCompanyWorkstream);
+    });
+    return rail;
+  }
+
+  function renderThreadOverviewRail(rail, snapshot) {
+    const companyMode = document.documentElement.getAttribute(COMPANY_WORKBENCH_MODE_ATTR) === "true";
+    const taskShell = isTaskShell();
+    const presentation = taskShell ? taskOverviewPresentation(snapshot) : snapshot;
+    applyOverviewVisibility(rail);
+    rail.dataset.taskPane = taskShell ? taskRailTab : "context";
+    rail.querySelector("[data-codex-task-rail-tabs]").hidden = !taskShell;
+    rail.querySelectorAll("[data-task-rail-tab]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.taskRailTab === taskRailTab)));
+    const skills = rail.querySelector("[data-codex-task-skills]");
+    skills.hidden = !taskShell || taskRailTab !== "skills";
+    if (!skills.hidden) renderTaskSkillsSection(skills, snapshot);
+    rail.querySelector("[data-codex-task-assets]").hidden = !taskShell || taskRailTab !== "assets";
+    rail.querySelector("[data-codex-task-context-extras]").hidden = !taskShell || taskRailTab !== "context";
+    syncTaskAssetPanel(rail);
+    if (taskShell) {
+      renderTaskAutoContextSection(rail.querySelector("[data-codex-task-auto-context]"), snapshot);
+      renderTaskNotesSection(rail.querySelector("[data-codex-task-notes]"), snapshot);
+      renderTaskColdSection(rail.querySelector("[data-codex-task-cold]"), snapshot);
+      renderTaskExcerptSection(rail.querySelector("[data-codex-task-excerpt]"), snapshot);
+    }
+    const timeItems = [];
+    const signature = [
+      companyMode,
+      taskShell,
+      snapshot.latestAnswer,
+      snapshot.threadId,
+      snapshot.title,
+      snapshot.currentRequest,
+      snapshot.progress,
+      snapshot.summary,
+      snapshot.nextStep,
+      snapshot.status,
+      snapshot.turnCount,
+      snapshot.historyComplete,
+      JSON.stringify(snapshot.taskContext),
+      timeItems.map((item) => [item.id, item.title, item.detail].join("\u0001")).join("\u0002"),
+    ].join("\u0000");
+    if (rail.dataset.signature === signature) return;
+    rail.dataset.signature = signature;
+    rail.querySelector("[data-codex-thread-overview-title]").textContent = snapshot.title;
+    rail.querySelector("[data-codex-thread-overview-summary]").textContent = presentation.summary;
+    rail.querySelector("[data-codex-thread-summary-label]").textContent = taskShell ? presentation.summaryLabel : "总结";
+    rail.querySelector("[data-codex-thread-next-label]").textContent = taskShell ? "答复中的后续提示" : "接下来";
+    rail.querySelector("[data-codex-thread-overview-next]").textContent = presentation.nextStep;
+    rail.querySelector('[data-kind="next"]').hidden = taskShell;
+    rail.querySelector("[data-codex-thread-default-summary]").hidden = taskShell;
+    rail.querySelector("[data-codex-thread-master-summary]").textContent = snapshot.summary;
+    rail.querySelector("[data-codex-thread-overview-meta]").textContent = taskShell
+      ? taskContextForSnapshot(snapshot) ? "摘要由助手维护 · 笔记单独保存" : "摘录自动更新 · 笔记手动保存"
+      : `${snapshot.turnCount} 轮对话 · ${snapshot.historyComplete ? "完整记录" : "当前页面"} · 自动更新`;
+    rail.querySelector("[data-codex-thread-overview-heading]").textContent = companyMode ? "主控态势" : taskShell ? "任务上下文" : "线程概述";
+    const syncButton = rail.querySelector("[data-codex-thread-add-memo]");
+    syncButton.hidden = true;
+    syncButton.textContent = companyMode ? "同步到未完成工作" : taskShell ? "编辑结论与下一步" : "加入未完成工作";
+    syncButton.setAttribute("aria-label", syncButton.textContent);
+    const currentCard = rail.querySelector("[data-codex-thread-master-current]");
+    const currentContent = rail.querySelector("[data-codex-thread-master-current-content]");
+    currentCard.dataset.empty = "false";
+    const request = document.createElement("p");
+    request.className = "codex-thread-master-work-title";
+    request.textContent = compactThreadText(snapshot.currentRequest, 240) || snapshot.title;
+    const progress = document.createElement("p");
+    progress.className = "codex-thread-master-field";
+    const progressLabel = document.createElement("strong");
+    progressLabel.textContent = "进度";
+    progress.append(progressLabel, document.createTextNode(compactThreadText(snapshot.progress, 240) || "尚未形成进展"));
+    const next = document.createElement("p");
+    next.className = "codex-thread-master-field";
+    const nextLabel = document.createElement("strong");
+    nextLabel.textContent = "下一步";
+    next.append(nextLabel, document.createTextNode(compactThreadText(snapshot.nextStep, 240) || "等待下一条要求"));
+    currentContent.replaceChildren(request, progress, next);
+    const timeList = rail.querySelector("[data-codex-thread-master-time-list]");
+    timeList.replaceChildren(...timeItems.map((item) => {
+      const row = document.createElement("li");
+      const content = document.createElement("span");
+      const title = document.createElement("span");
+      title.className = "codex-thread-master-time-title";
+      title.textContent = item.title;
+      const detail = document.createElement("span");
+      detail.className = "codex-thread-master-time-detail";
+      detail.textContent = item.detail;
+      content.append(title, detail);
+      row.append(content);
+      return row;
+    }));
+    rail.querySelector("[data-codex-thread-master-time-empty]").hidden = timeItems.length > 0;
+    const status = rail.querySelector("[data-codex-thread-overview-status]");
+    status.textContent = presentation.status;
+    status.dataset.running = String(snapshot.running);
+  }
+
+  function focusCompanyOperations() {
+    ensureThreadOverviewRail();
+    openCompanyOperations("home");
+    requestAnimationFrame(() => document.getElementById(ASSET_CONSOLE_FRAME_ID)?.focus());
+  }
+
+  function openCompanyOperations(workstream = "home") {
+    if (!assetConsole.operationsAvailable || !COMPANY_OPERATIONS_WORKSTREAMS.has(workstream)) return;
+    const rail = document.getElementById(THREAD_OVERVIEW_RAIL_ID);
+    if (!rail || document.documentElement.getAttribute(COMPANY_WORKBENCH_MODE_ATTR) !== "true") return;
+    const existing = document.querySelector(`#${ASSET_CONSOLE_PANEL_ID}[data-console-kind="operations"][data-docked="true"]`);
+    if (!existing) resetOperationsFrameChannel({ preserveWorkstream: false });
+    sendOperationsWorkstream(workstream);
+    openAssetConsolePanel("operations", { docked: true });
+    const panel = document.getElementById(ASSET_CONSOLE_PANEL_ID);
+    if (panel) panel.dataset.workstream = workstream;
+    applyCompanyRailLayout(rail);
+  }
+
+  function returnToCompanyMaster() {
+    closeAssetConsolePanel({ notify: true, focusTarget: "none", destroy: true });
+    const rail = document.getElementById(THREAD_OVERVIEW_RAIL_ID);
+    if (rail) {
+      applyCompanyRailLayout(rail);
+      requestAnimationFrame(() => rail.querySelector("[data-codex-company-master-view]")?.focus?.());
+    }
+  }
+
+  function applyCompanyRailLayout(rail) {
+    const companyMode = document.documentElement.getAttribute(COMPANY_WORKBENCH_MODE_ATTR) === "true";
+    const master = rail.querySelector("[data-codex-company-master-view]");
+    const panel = document.getElementById(ASSET_CONSOLE_PANEL_ID);
+    if (!companyMode) {
+      if (panel?.dataset.docked === "true" && panel.dataset.consoleKind === "operations") {
+        closeAssetConsolePanel({ notify: true, focusTarget: "none", destroy: true });
+      }
+      return;
+    }
+    const operationsPanel = panel?.dataset.docked === "true" && panel.dataset.consoleKind === "operations" ? panel : null;
+    if (!assetConsole.operationsAvailable && operationsPanel) {
+      closeAssetConsolePanel({ notify: true, focusTarget: "none", destroy: true });
+    }
+    const operationsActive = Boolean(assetConsole.operationsAvailable && operationsPanel?.isConnected);
+    rail.dataset.operationsActive = String(operationsActive);
+    if (master) master.hidden = operationsActive;
+    rail.querySelectorAll("[data-codex-company-workstream]").forEach((button) => {
+      button.disabled = !assetConsole.operationsAvailable;
+      button.setAttribute("aria-pressed", String(operationsActive && button.dataset.codexCompanyWorkstream === companyOperationsWorkstream));
+    });
+  }
+
+  function ensureThreadOverviewRail() {
+    const snapshot = resolvedCurrentThreadSnapshot();
+    const frame = document.querySelector(
+      '[data-app-shell-main-content-layout="thread-edge-scroll"] [data-app-shell-thread-edge-divider="true"]',
+    );
+    const host = frame?.firstElementChild;
+    const nativePanelVisible = Array.from(document.querySelectorAll('[data-app-shell-right-panel-full-width="true"]'))
+      .some((node) => {
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return rect.width > 40 && rect.height > 40 && style.display !== "none"
+          && style.visibility !== "hidden" && Number(style.opacity || 1) > 0.05;
+      });
+    if (!snapshot || !host?.querySelector("[data-app-action-timeline-scroll]") || nativePanelVisible) {
+      const docked = document.querySelector(`#${THREAD_OVERVIEW_RAIL_ID} #${ASSET_CONSOLE_PANEL_ID}`);
+      if (docked) closeAssetConsolePanel({ notify: true, focusTarget: "none", destroy: true });
+      document.getElementById(THREAD_OVERVIEW_RAIL_ID)?.remove();
+      return;
+    }
+    let rail = document.getElementById(THREAD_OVERVIEW_RAIL_ID);
+    if (rail && rail.dataset.codexPreviewRuntime !== RUNTIME_TOKEN) {
+      if (rail.querySelector(`#${ASSET_CONSOLE_PANEL_ID}`)) {
+        closeAssetConsolePanel({ notify: true, focusTarget: "none", destroy: true });
+      }
+      rail?.remove();
+      rail = null;
+    }
+    if (!rail) rail = createThreadOverviewRail();
+    if (rail.parentElement !== host || rail !== host.lastElementChild) host.append(rail);
+    renderThreadOverviewRail(rail, snapshot);
+    applyCompanyRailLayout(rail);
+    const companyMode = document.documentElement.getAttribute(COMPANY_WORKBENCH_MODE_ATTR) === "true";
+    if (companyMode && assetConsole.operationsAvailable && rail.dataset.companyDefaultViewApplied !== "true") {
+      rail.dataset.companyDefaultViewApplied = "true";
+      openCompanyOperations("home");
+    } else if (!companyMode) {
+      delete rail.dataset.companyDefaultViewApplied;
+    }
   }
 
   function handleFolderSearchInput(event) {
@@ -2872,8 +5489,7 @@
     const signature = sources.items.map((item) => item.id).join("\n");
     const needsRebuild = root?.dataset.codexPreviewRuntime !== RUNTIME_TOKEN
       || root?.parentElement !== host
-      || root?.dataset.sourceIds !== signature
-      || sources.items.some((item) => folderSources.get(item.id)?.row !== item.row);
+      || root?.dataset.sourceIds !== signature;
     if (needsRebuild) {
       clearFolderEnhancement();
       root = createFolderSwitcher();
@@ -3207,69 +5823,22 @@
     tooltip.setAttribute("data-codex-conversation-preview-tooltip", "true");
     const details = document.createElement("div");
     details.className = DETAILS_CLASS;
-    appendBlock(details, "核心总结", preview.summary);
-    appendBlock(details, "最近输入", preview.recentInput);
-    appendBlock(details, "最近输出", preview.recentOutput);
+    const taskShell = isTaskShell();
+    appendBlock(details, "核心总结", taskShell ? cleanTaskPreviewText(preview.summary, preview.recentOutput) : preview.summary);
+    appendBlock(details, "最近输入", taskShell ? cleanTaskPreviewText(preview.recentInput) : preview.recentInput);
+    appendBlock(details, "最近输出", taskShell ? cleanTaskPreviewText(preview.recentOutput) : preview.recentOutput);
     card.appendChild(details);
   }
 
-  const SKILL_FILTERS = ["常用", "视频创作", "导演镜头", "画面风格", "资产工作台", "写作研究", "工具管理", "全部"];
-  const SKILL_SUBGROUPS = {
-    "视频创作": [
-      { id: "action", label: "动作与打斗", description: "动作设计、打斗物理、追逐与变形", pattern: /动作|打斗|战斗|武打|追逐|机甲|变形|mocap|action|motion/i },
-      { id: "directing", label: "镜头与导演", description: "镜头、分镜、调度、表演与叙事", pattern: /导演|镜头|分镜|摄影|机位|调度|表演|角色|叙事|storyboard|camera|shot/i },
-      { id: "visual", label: "视觉风格与特效", description: "画面风格、灯光、VFX 与视觉效果", pattern: /视觉|画面|风格|灯光|光影|特效|vfx|visual|style|lighting/i },
-      { id: "review", label: "验片与迭代", description: "预检、审片、一致性与问题修复", pattern: /预检|验片|审片|检查|复盘|迭代|质量|一致性|诊断|review|audit|doctor|troubleshoot|antislop|preflight/i },
-      { id: "prompting", label: "提示词与生成", description: "生成平台、提示词、续写与模型适配", pattern: /提示词|生成|即梦|minimax|midjourney|prompt|generation|continuation/i },
-      { id: "post", label: "后期、节奏与声音", description: "剪辑结构、音乐、音效、混音与交付", pattern: /剪辑|节奏|音乐|声音|音效|配乐|混音|成片|交付|mv|audio|sound|editing|rhythm|structure|wechat|cycle/i },
-      { id: "seedance", label: "Seedance 工具集", description: "示例、配方、词表、过滤与专项能力", pattern: /seedance/i },
-      { id: "other", label: "综合视频工具", description: "其他视频创作与交付能力" },
-    ],
-    "导演镜头": [
-      { id: "action", label: "动作场面", description: "打斗、追逐、动作物理与预演", pattern: /动作|打斗|战斗|武打|追逐|机甲|mocap|action|motion|物理/i },
-      { id: "camera", label: "镜头与分镜", description: "摄影、机位、运镜、分镜与主镜", pattern: /镜头|分镜|摄影|运镜|机位|相机|camera|shot|storyboard|previs|预演/i },
-      { id: "performance", label: "表演与叙事", description: "角色、情绪、剧本、连续性与场面调度", pattern: /表演|角色|情绪|叙事|剧本|连续性|导演|scene|continuity/i },
-      { id: "effects", label: "特效与转场", description: "VFX、变形、转场与效果构造", pattern: /vfx|特效|转场|变形|transform|transition/i },
-      { id: "other", label: "综合导演工具", description: "其他导演与镜头方法" },
-    ],
-    "画面风格": [
-      { id: "aesthetic", label: "美学与风格", description: "审美方向、视觉风格、色彩与画面语言", pattern: /风格|美学|审美|视觉|色彩|画面|style|aesthetic/i },
-      { id: "composition", label: "构图与光影", description: "构图、摄影、灯光、景深与空间关系", pattern: /构图|摄影|灯光|光影|景深|机位|lighting|composition/i },
-      { id: "material", label: "材质与写实", description: "材质、质感、写实度与画面清理", pattern: /材质|质感|写实|清理|realism|material|clean/i },
-      { id: "world", label: "世界与角色", description: "世界观、角色、场景与美术开发", pattern: /世界观|世界|角色|场景|美术|服化|world|character|production design/i },
-      { id: "other", label: "参考与图像工具", description: "其他画面参考与图像能力" },
-    ],
-    "资产工作台": [
-      { id: "pipeline", label: "生成与归档", description: "素材生成、下载、归档与资产流水线", pattern: /生成|归档|资产|素材|下载|pipeline|archive/i },
-      { id: "quality", label: "整理与质量", description: "清理、去重、审计、一致性与复盘", pattern: /整理|清理|去重|重复|质量|审计|一致性|复盘|audit|review/i },
-      { id: "workspace", label: "Codex 与 Skill", description: "工作台增强、Skill 管理与工具治理", pattern: /codex|skill|工作台|工具|管理|安装|plugin/i },
-      { id: "knowledge", label: "知识与账本", description: "知识卡、语义检索、账本与长期记录", pattern: /知识|卡片|账本|记录|语义|knowledge|ledger|semantic/i },
-      { id: "other", label: "其他资产工具", description: "其他资产与工作流能力" },
-    ],
-    "写作研究": [
-      { id: "screenwriting", label: "剧本与故事", description: "剧本开发、故事结构、改编与会诊", pattern: /剧本|故事|小说|叙事|编剧|screenplay|screenwriting|story/i },
-      { id: "writing", label: "内容写作", description: "文章、文案、公众号、小红书与自然表达", pattern: /写作|文章|文案|公众号|小红书|human|writing|humanizer/i },
-      { id: "research", label: "研究与蒸馏", description: "资料研究、阅读蒸馏、知识与热点追踪", pattern: /研究|蒸馏|阅读|知识|语义|热点|research|brief|distill|recall/i },
-      { id: "other", label: "其他写作研究", description: "其他文字与研究能力" },
-    ],
-    "工具管理": [
-      { id: "skills", label: "Skill 与工作台", description: "Skill 创建、安装、治理与 Codex 增强", pattern: /skill|codex|工作台|插件|plugin|governor|creator|installer/i },
-      { id: "documents", label: "文档与数据", description: "表格、文档、演示、图表与报告", pattern: /数据|表格|文档|幻灯|报告|图表|pdf|document|spreadsheet|presentation|drawio/i },
-      { id: "automation", label: "浏览与自动化", description: "浏览器、网页、下载与自动化流程", pattern: /浏览器|网页|自动|下载|browser|web|automation|watch/i },
-      { id: "quality", label: "审计与验证", description: "测试、调试、审计、验证与安全清理", pattern: /审计|测试|调试|验证|检查|review|audit|test|debug|cleanup/i },
-      { id: "other", label: "其他工具", description: "其他通用工具与辅助能力" },
-    ],
-  };
-  const DEFAULT_SKILL_PATTERNS = [
-    /创意|creative/i,
-    /导演|director|orchestrator/i,
-    /视频|video/i,
-    /提示词|prompt/i,
-    /资产|素材|asset/i,
-    /工作台|workspace|codex/i,
-    /知识|knowledge/i,
-    /写作|writing/i,
-  ];
+  function escapeSkillLabel(value) {
+    return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+  }
+
+  const skillConfig = window.__CODEX_ENHANCER_CONFIG__?.skills || {};
+  const SKILL_CATEGORIES = (Array.isArray(skillConfig.categories) ? skillConfig.categories : []).filter(item =>
+    typeof item?.label === "string" && item.label.trim() && !["常用", "全部"].includes(item.label) && Array.isArray(item.keywords));
+  const SKILL_FILTERS = ["常用", ...new Set(SKILL_CATEGORIES.map(item => item.label)), "全部"];
+  const SKILL_SUBGROUPS = {};
 
   function normalizedSkillText(value) {
     return String(value || "").trim().toLocaleLowerCase("zh-CN");
@@ -3278,31 +5847,14 @@
   function skillCategoryMatches(entry, category) {
     if (category === "全部") return true;
     if (category === "常用") return skillOrganizerFavorites?.has(entry.title) === true;
-    const text = `${entry.title} ${entry.description}`;
-    if (category === "视频创作") return /视频|影像|seedance|即梦|minimax|剪辑|节奏|音乐|音效|mv|提示词|生成/i.test(text);
-    if (category === "导演镜头") return /导演|镜头|分镜|动作|摄影|剧本|表演|角色|连续性|转场|vfx|特效|变形/i.test(text);
-    if (category === "画面风格") return /风格|美学|视觉|画面|图像|灯光|材质|世界观|参考|构图|色彩|写实/i.test(text);
-    if (category === "资产工作台") return /资产|素材|工作台|归档|账本|管线|codex|知识卡|skill|工作流|下载|清理/i.test(text);
-    if (category === "写作研究") return /写作|研究|蒸馏|知识|文章|公众号|小红书|热点|脚本|长内容|语义|阅读|剧本/i.test(text);
-    return /工具|管理|浏览器|网页|数据|表格|文档|幻灯|安装|审计|测试|调试|skill|codex/i.test(text);
+    const text = normalizedSkillText(`${entry.title} ${entry.description}`);
+    const rule = SKILL_CATEGORIES.find(item => item.label === category);
+    return Boolean(rule?.keywords.some(word => typeof word === "string" && word.trim() && text.includes(normalizedSkillText(word))));
   }
 
   function defaultSkillFavorites(catalog) {
-    const selected = [];
-    for (const pattern of DEFAULT_SKILL_PATTERNS) {
-      const match = catalog.find((entry) => !selected.includes(entry.title) && pattern.test(entry.title))
-        || catalog.find((entry) => !selected.includes(entry.title) && pattern.test(`${entry.title} ${entry.description}`));
-      if (match) selected.push(match.title);
-    }
-    if (selected.length < 8) {
-      for (const entry of catalog) {
-        if (selected.includes(entry.title)) continue;
-        if (!/视频|导演|镜头|资产|工作台|提示词|创作|知识卡|写作/i.test(`${entry.title} ${entry.description}`)) continue;
-        selected.push(entry.title);
-        if (selected.length >= 10) break;
-      }
-    }
-    return new Set(selected.slice(0, 12));
+    const titles = new Set(catalog.map(entry => entry.title));
+    return new Set((Array.isArray(skillConfig.defaultFavorites) ? skillConfig.defaultFavorites : []).filter(title => titles.has(title)));
   }
 
   function loadSkillFavorites(catalog) {
@@ -3680,6 +6232,8 @@
   }
 
   function sync() {
+    ensureTaskAssetComposerChips();
+    ensureTaskSkillComposerChips();
     if (destroyed) return;
     syncAssetConsoleTaskContext();
     ensureShortcutGrid();
@@ -3687,6 +6241,8 @@
     ensureViewToggle();
     ensureSectionTabs();
     ensureFolderSwitcher();
+    updateViewState();
+    ensureThreadOverviewRail();
     ensureHomeProjectShelf();
     const rows = visibleRows();
     const anchor = !layoutAnchored
@@ -3699,7 +6255,7 @@
       : null;
     for (const row of rows) applySummary(row, previews.get(rowKey(row)));
     if (anchor) {
-      anchor.scrollIntoView({ block: viewMode === "card" ? "center" : "nearest" });
+      anchor.scrollIntoView({ block: currentViewMode() === "card" ? "center" : "nearest" });
       layoutAnchored = true;
     }
     enhanceTooltip();
@@ -3707,6 +6263,11 @@
 
   function setPreviews(items) {
     previews = new Map((Array.isArray(items) ? items : []).map((preview) => [preview.key, preview]));
+    sync();
+  }
+
+  function setThreadOverview(value) {
+    threadOverview = value && typeof value === "object" ? value : null;
     sync();
   }
 
@@ -3752,10 +6313,12 @@
     const source = value && typeof value === "object" ? value : {};
     assetConsole = {
       available: source.available === true,
+      assetAvailable: source.assetAvailable === true,
+      operationsAvailable: source.operationsAvailable === true,
       label: typeof source.label === "string" && source.label.trim() ? source.label.trim() : "资产控制台",
       mode: source.mode === "embedded" ? "embedded" : "external",
     };
-    if (!assetConsole.available) closeAssetConsolePanel({ notify: false });
+    if (!assetConsole.available) closeAssetConsolePanel({ notify: false, destroy: true });
     sync();
   }
 
@@ -3798,17 +6361,21 @@
 
   function destroy() {
     destroyed = true;
+    document.getElementById("codex-task-asset-composer-chips")?.remove();
+    document.getElementById("codex-task-skill-composer-chips")?.remove();
+    taskSkillRequestCleanup?.();
     observer?.disconnect();
     clearTimeout(syncTimer);
     document.removeEventListener("pointerover", scheduleSync, true);
     document.removeEventListener("keydown", handleAssetConsoleKeydown, true);
     window.removeEventListener("message", handleAssetConsoleMessage);
     window.removeEventListener("resize", positionAssetConsolePanel);
-    closeAssetConsolePanel({ notify: false, focusTarget: "none" });
+    closeAssetConsolePanel({ notify: false, focusTarget: "none", destroy: true });
     clearSkillOrganizer();
     document.getElementById(STYLE_ID)?.remove();
     document.getElementById(TOGGLE_ID)?.remove();
     document.getElementById(USAGE_ID)?.remove();
+    document.getElementById(THREAD_OVERVIEW_RAIL_ID)?.remove();
     clearHomeProjectShelf();
     clearShortcutEnhancement();
     clearSectionEnhancement();
@@ -3816,6 +6383,8 @@
       node.removeAttribute(SIDEBAR_NATIVE_HEADER_STABLE_ATTR);
     });
     document.documentElement.removeAttribute("data-codex-conversation-view");
+    document.documentElement.removeAttribute("data-codex-task-shell");
+    document.documentElement.removeAttribute(COMPANY_WORKBENCH_MODE_ATTR);
     document.querySelectorAll(`.${SUMMARY_CLASS}, .${DETAILS_CLASS}, .${CARD_CONTENT_CLASS}`).forEach((node) => node.remove());
     document.querySelectorAll('[data-codex-conversation-preview-enhanced="true"]').forEach((row) => {
       row.removeAttribute("data-codex-conversation-preview-enhanced");
@@ -3832,12 +6401,15 @@
     document.querySelectorAll('[data-codex-sidebar-search-match="true"]').forEach((node) => {
       node.removeAttribute("data-codex-sidebar-search-match");
     });
+    if (window[SENTINEL]?.destroy === destroy) delete window[SENTINEL];
   }
 
   window[SENTINEL] = {
     destroy,
     refresh: sync,
     setPreviews,
+    setThreadOverview,
+    setSkillCatalog,
     setSearchCatalog,
     setUsage,
     setHomeProjects,

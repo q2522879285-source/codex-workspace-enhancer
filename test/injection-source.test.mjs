@@ -75,12 +75,12 @@ test("skill management expands, organizes, searches, favorites, and restores the
   assert.match(source, /section#skills-installed/);
   assert.match(source, /expandButton\.click\(\)/);
   assert.match(source, /Skill 工作台/);
-  assert.match(source, /视频创作/);
-  assert.match(source, /导演镜头/);
-  assert.match(source, /资产工作台/);
-  assert.match(source, /写作研究/);
+  assert.match(source, /window\.__CODEX_ENHANCER_CONFIG__\?\.skills/);
+  assert.match(source, /Array\.isArray\(skillConfig\.categories\)/);
+  assert.match(source, /SKILL_CATEGORIES/);
+  assert.match(source, /rule\?\.keywords\.some/);
+  assert.match(source, /Array\.isArray\(skillConfig\.defaultFavorites\)/);
   assert.match(source, /SKILL_SUBGROUPS/);
-  assert.match(source, /动作与打斗/);
   assert.match(source, /codex-skill-group-toggle/);
   assert.match(source, /aria-controls/);
   assert.match(source, /skillOrganizerExpandedGroups/);

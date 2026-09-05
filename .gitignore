@@ -1,5 +1,10 @@
 .runtime/
 .release/
+.release*/
+enhancer.config.json
+.generation-tickets.json
+.thread-project-bindings.json
+.midjourney-workspace.json
 .task-description.md
 .task-review.md
 node_modules/

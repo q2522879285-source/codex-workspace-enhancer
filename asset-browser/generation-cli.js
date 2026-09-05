@@ -2,11 +2,13 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GenerationPipeline } from "./generation-pipeline.js";
+import { assetBrowserRuntime } from "../lib/install-config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const configPath = path.resolve(process.env.ASSET_BROWSER_CONFIG || path.join(__dirname, "asset-browser.config.json"));
-const registryPath = path.resolve(process.env.GENERATION_TICKETS || path.join(__dirname, ".generation-tickets.json"));
-const bindingsPath = path.resolve(process.env.GENERATION_THREAD_BINDINGS || path.join(__dirname, ".thread-project-bindings.json"));
+const runtime = assetBrowserRuntime();
+const configPath = runtime.env.ASSET_BROWSER_CONFIG;
+const registryPath = runtime.env.GENERATION_TICKETS;
+const bindingsPath = runtime.env.GENERATION_THREAD_BINDINGS;
 const pipeline = new GenerationPipeline({ registryPath, bindingsPath });
 
 function parseArgs(argv) {
@@ -100,7 +102,6 @@ try {
     if (!args.ticket || !args.source) throw new Error("attach 需要 --ticket 和 --source");
     print(await pipeline.attach(args.ticket, {
       sourcePath: args.source,
-      moveSource: args.move === true || args.move === "true",
       nameStem: args.name || ""
     }, await loadConfig()));
   } else if (command === "cancel") {

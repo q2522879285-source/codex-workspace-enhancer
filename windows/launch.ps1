@@ -55,21 +55,11 @@ try {
     $_.ExecutablePath -like "*OpenAI.Codex*" -and
     $_.CommandLine -notmatch "--type="
   }
-  foreach ($item in $mainProcesses) {
-    $process = Get-Process -Id $item.ProcessId -ErrorAction SilentlyContinue
-    if ($process) { [void]$process.CloseMainWindow() }
-  }
-
   if ($mainProcesses) {
-    $deadline = (Get-Date).AddSeconds(8)
-    do {
-      Start-Sleep -Milliseconds 250
-      $remaining = @($mainProcesses | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
-    } while ($remaining.Count -gt 0 -and (Get-Date) -lt $deadline)
-    foreach ($item in $remaining) {
-      Stop-Process -Id $item.ProcessId -Force -ErrorAction SilentlyContinue
-    }
-    Start-Sleep -Milliseconds 500
+    Write-LauncherLog "Codex is running without debugging. Close it normally, then launch this shortcut again."
+    Add-Type -AssemblyName PresentationFramework
+    [System.Windows.MessageBox]::Show("请先正常退出 Codex，再打开增强器快捷方式。当前任务不会被关闭。", "Codex 侧栏增强器", "OK", "Information") | Out-Null
+    exit 0
   }
 
   Start-Process -FilePath $codexExe -ArgumentList @(

@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $outputRoot = [IO.Path]::GetFullPath($OutputDir)
 $expectedParent = [IO.Path]::GetFullPath($repoRoot)
-if (-not $outputRoot.StartsWith($expectedParent, [StringComparison]::OrdinalIgnoreCase)) {
+if (-not $outputRoot.StartsWith($expectedParent.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
   throw "OutputDir must stay inside the repository: $outputRoot"
 }
 
@@ -21,6 +21,17 @@ function Copy-Tree([string]$Source, [string]$Destination) {
   Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
 }
 
+function Copy-Backend([string]$Destination) {
+  $files = @('server.js', 'asset-classification.js', 'codex-workspace.js', 'download-automation.js',
+    'duplicate-cleaner.js', 'folder-operations.js', 'generation-cli.js', 'generation-pipeline.js',
+    'midjourney-workspace.js', 'prompt-library.js', 'rhythm-control-track.py', 'three-d-workbench.js',
+    'workspace-governance.js', 'package.json', 'asset-browser.config.example.json')
+  foreach ($file in $files) { Copy-Tree (Join-Path $repoRoot "asset-browser\$file") (Join-Path $Destination $file) }
+  foreach ($file in @('app.js', 'index.html', 'styles.css', 'ui-v3.css')) {
+    Copy-Tree (Join-Path $repoRoot "asset-console\public\$file") (Join-Path $Destination "public\$file")
+  }
+}
+
 function Write-ShaSidecar([string]$FilePath) {
   $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $FilePath).Hash.ToLowerInvariant()
   $line = "$hash  $([IO.Path]::GetFileName($FilePath))`n"
@@ -31,16 +42,17 @@ try {
   $frontendRoot = Join-Path $workRoot 'frontend'
   New-Item -ItemType Directory -Path $frontendRoot -Force | Out-Null
   $frontendFiles = @(
-    'LICENSE', 'README.md', 'README-Windows.txt', 'VERIFICATION.txt', 'package.json',
+    'LICENSE', 'README.md', 'README.en.md', 'README-Windows.txt', 'CHANGELOG.md', 'VERIFICATION.txt', 'package.json',
     'install-windows.ps1', 'install.sh', 'uninstall.sh'
   )
   foreach ($relative in $frontendFiles) {
     $source = Join-Path $repoRoot $relative
     if (Test-Path -LiteralPath $source) { Copy-Tree $source (Join-Path $frontendRoot $relative) }
   }
-  foreach ($relative in @('asset-console', 'inject', 'lib', 'scripts', 'windows')) {
+  foreach ($relative in @('asset-console', 'inject', 'lib', 'scripts', 'windows', 'templates', 'docs')) {
     Copy-Tree (Join-Path $repoRoot $relative) (Join-Path $frontendRoot $relative)
   }
+  Copy-Backend (Join-Path $frontendRoot 'asset-browser')
 
   $windowsZip = Join-Path $outputRoot 'codex-sidebar-enhancer-windows.zip'
   Compress-Archive -Path (Join-Path $frontendRoot '*') -DestinationPath $windowsZip -CompressionLevel Optimal
@@ -54,9 +66,7 @@ try {
   Copy-Tree $windowsZip (Join-Path $runtimeRoot 'codex-sidebar-enhancer-windows.zip')
 
   $backendPayload = Join-Path $runtimeRoot 'asset-browser'
-  Copy-Tree (Join-Path $repoRoot 'asset-browser') $backendPayload
-  if (Test-Path -LiteralPath (Join-Path $backendPayload 'public')) { Remove-Item -LiteralPath (Join-Path $backendPayload 'public') -Recurse -Force }
-  Copy-Tree (Join-Path $repoRoot 'asset-console\public') (Join-Path $backendPayload 'public')
+  Copy-Backend $backendPayload
 
   if (Test-Path -LiteralPath $OnepagerPath) {
     Copy-Tree $OnepagerPath (Join-Path $skillRoot 'assets\onepager.png')

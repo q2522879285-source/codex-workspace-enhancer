@@ -1,6 +1,6 @@
 {
   "name": "codex-workspace-enhancer",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "A local, reversible Codex workspace enhancement with task recall, Skill organization, and an embedded asset console.",
   "license": "MIT",
   "homepage": "https://github.com/q2522879285-source/codex-workspace-enhancer#readme",
@@ -18,14 +18,15 @@
     "productivity"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   },
   "type": "module",
   "scripts": {
     "inspect": "node scripts/inspect-sidebar.mjs",
     "test": "node --test",
     "inject": "node scripts/injector.mjs --port 9231 --watch",
-    "verify:install": "node --test test/install-config.test.mjs test/public-install.test.mjs"
+    "verify:install": "node --test test/install-config.test.mjs test/public-install.test.mjs",
+    "check:public": "node scripts/check-public-release.mjs"
   },
   "devDependencies": {
     "ws": "^8.21.3"

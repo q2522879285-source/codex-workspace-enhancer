@@ -49,6 +49,10 @@ function New-Shortcut {
 }
 
 function Stop-ExistingInjector {
+  $backendServer = Join-Path $InstallDir "asset-browser\server.js"
+  Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -eq 'node.exe' -and $_.CommandLine -and $_.CommandLine.Contains($backendServer)
+  } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop }
   $pidPath = Join-Path $StateDir "injector.pid"
   if (-not (Test-Path -LiteralPath $pidPath)) { return }
   $savedPid = 0
@@ -112,8 +116,8 @@ try {
     }
   }
   $node = Get-Command node -ErrorAction Stop
-  $nodeMajor = [int]((& $node.Source -p "Number(process.versions.node.split('.')[0])").Trim())
-  if ($nodeMajor -lt 22) { throw "Node.js 22 or newer is required" }
+  $nodeVersion = [version]((& $node.Source -p "process.versions.node").Trim())
+  if ($nodeVersion -lt [version]"22.13.0") { throw "Node.js 22.13 or newer is required" }
 
   $package = Get-AppxPackage -Name "OpenAI.Codex" -ErrorAction Stop | Sort-Object Version -Descending | Select-Object -First 1
   $codexExe = Join-Path $package.InstallLocation "app\ChatGPT.exe"
@@ -129,14 +133,20 @@ try {
   New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
   $stagingCreated = $true
 
-  foreach ($directory in @("asset-console", "inject", "lib", "scripts", "windows")) {
+  foreach ($directory in @("asset-browser", "asset-console", "inject", "lib", "scripts", "windows", "templates")) {
     Copy-Item -LiteralPath (Join-Path $sourceDir $directory) -Destination $stagingDir -Recurse -Force
   }
   foreach ($file in @("LICENSE", "README.md", "README-Windows.txt", "package.json")) {
     Copy-Item -LiteralPath (Join-Path $sourceDir $file) -Destination $stagingDir -Force
   }
 
-  $sourceRef = "v1.0.1"
+  $savedConfig = if ($hadExisting) { Join-Path $InstallDir "enhancer.config.json" } else { Join-Path $StateDir "enhancer.config.json" }
+  if (Test-Path -LiteralPath $savedConfig) {
+    Copy-Item -LiteralPath $savedConfig -Destination (Join-Path $stagingDir "enhancer.config.json") -Force
+  }
+  & $node.Source (Join-Path $stagingDir "scripts\setup-asset-browser.mjs") --state-dir $StateDir
+  if ($LASTEXITCODE -ne 0) { throw "Asset backend setup failed" }
+  $sourceRef = "v" + (Get-Content -LiteralPath (Join-Path $sourceDir "package.json") -Raw | ConvertFrom-Json).version
   $manifest = [ordered]@{
     name = "Codex Sidebar Enhancer"
     source = "https://github.com/q2522879285-source/codex-workspace-enhancer"

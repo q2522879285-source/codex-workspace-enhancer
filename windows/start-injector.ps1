@@ -28,9 +28,10 @@ if (Test-Path -LiteralPath $pidPath) {
 }
 
 $node = Get-Command node -ErrorAction Stop
-$nodeMajor = [int]((& $node.Source -p "Number(process.versions.node.split('.')[0])").Trim())
-if ($nodeMajor -lt 22) { throw "Node.js 22 or newer is required" }
+$nodeVersion = [version]((& $node.Source -p "process.versions.node").Trim())
+if ($nodeVersion -lt [version]"22.13.0") { throw "Node.js 22.13 or newer is required" }
 
+$env:CODEX_ENHANCER_STATE_DIR = $StateDir
 $process = Start-Process -FilePath $node.Source `
   -ArgumentList @("`"$injectorPath`"", "--port", "$Port", "--watch") `
   -WorkingDirectory $InstallDir `

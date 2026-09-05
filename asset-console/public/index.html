@@ -60,6 +60,20 @@
         </div>
       </details>
 
+      <details class="sidebar-module collapsible-section" data-section-id="smart-groups" open>
+        <summary class="section-summary">
+          <span class="sidebar-module-grip" draggable="true" title="拖动调整模块顺序">⠿</span>
+          <span class="section-title">资产分组</span>
+          <span class="section-note">与质量状态分开</span>
+        </summary>
+        <div class="filter-list sidebar-module-body" id="smartGroupFilters">
+          <button data-smart-group="" class="active">全部分组</button>
+          <button data-smart-group="official">正式资产</button>
+          <button data-smart-group="review">待确认</button>
+          <button data-smart-group="noise">干扰项</button>
+        </div>
+      </details>
+
       <details class="sidebar-module collapsible-section" data-section-id="status">
         <summary class="section-summary">
           <span class="sidebar-module-grip" draggable="true" title="拖动调整模块顺序">⠿</span>
@@ -108,33 +122,22 @@
   </aside>
 
   <main class="main">
-    <section id="codexTaskBar" class="codex-task-bar" aria-label="当前 Codex 任务" hidden>
-      <div class="codex-task-context">
-        <span class="codex-task-eyebrow">当前 Codex 任务</span>
-        <strong id="codexTaskTitle">当前任务</strong>
-        <span id="codexBindingState" class="codex-binding-state">关联项目：未设置</span>
-      </div>
-      <nav class="codex-workspace-switcher" aria-label="资产位置">
-        <button type="button" data-codex-workspace="pending-review">待处理</button>
-        <button type="button" data-codex-workspace="bound">项目素材</button>
-        <button type="button" data-codex-workspace="ai-reference-library">精选库</button>
+    <section id="codexTaskBar" class="codex-task-bar" aria-label="项目资产" hidden>
+      <nav class="resource-scopes" aria-label="资产范围">
+        <button type="button" data-codex-scope="project" aria-pressed="true">项目资产</button>
+        <button type="button" data-codex-scope="shared" aria-pressed="false">公用资产</button>
       </nav>
-      <div class="codex-task-actions">
-        <button type="button" class="codex-daily-button" data-codex-workspace="dated-workspace">今日工作</button>
-        <details id="codexBindingMenu" class="codex-binding-menu">
-          <summary>选择项目</summary>
-          <div class="codex-binding-popover">
-            <strong>关联当前任务</strong>
-            <p>决定“项目素材”显示什么，以及“移动到项目”的目标。</p>
-            <label class="codex-bind-control">
-              <span class="sr-only">选择绑定项目</span>
-              <select id="codexProjectSelect" aria-label="选择绑定项目"></select>
-            </label>
-            <div class="codex-binding-actions">
-              <button id="codexBindProject" type="button" class="codex-bind-button">关联这个项目</button>
-              <button id="codexNewProjectButton" type="button" class="codex-new-project-button">新建项目</button>
-            </div>
-          </div>
+      <div class="resource-heading">
+        <span class="resource-project-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3.5 7h6l2-2h9v14h-17V7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M4 9.5h16" stroke="currentColor" stroke-width="1.5"/></svg></span>
+        <strong id="codexResourceTitle">项目资产</strong>
+      </div>
+      <p id="codexResourceSubtitle" hidden></p>
+      <div class="codex-legacy-binding" hidden>
+        <strong id="codexTaskTitle"></strong><span id="codexBindingState"></span>
+        <details id="codexBindingMenu"><summary>项目设置</summary>
+          <select id="codexProjectSelect" aria-label="项目"></select>
+          <button id="codexBindProject" type="button">关联项目</button>
+          <button id="codexNewProjectButton" type="button">新建项目</button>
         </details>
       </div>
     </section>
@@ -145,11 +148,26 @@
       </div>
       <div class="toolbar">
         <div class="search-cluster">
-          <input id="searchInput" type="search" placeholder="搜索当前工作区" aria-label="搜索资产">
+          <input id="searchInput" type="search" placeholder="搜索文件名、路径…" aria-label="搜索当前范围的资产" aria-keyshortcuts="Control+K">
           <kbd>Ctrl K</kbd>
         </div>
+        <button id="codexExclusionsButton" type="button" popovertarget="codexExclusionsPopover" title="选择不显示的文件类别">排除类别 <span id="codexExclusionsCount">1</span></button>
+        <div id="codexExclusionsPopover" popover="auto" aria-label="排除类别">
+          <div class="resource-exclusions-heading"><strong>排除类别</strong><button id="codexRestoreTypes" type="button">恢复全部</button></div>
+          <p>勾选后隐藏，不删除文件。</p>
+          <div class="resource-exclusions-options">
+            <label><input type="checkbox" data-codex-exclude="image">图片</label>
+            <label><input type="checkbox" data-codex-exclude="video">视频</label>
+            <label><input type="checkbox" data-codex-exclude="audio">音频</label>
+            <label><input type="checkbox" data-codex-exclude="document">文档</label>
+            <label><input type="checkbox" data-codex-exclude="web">网页</label>
+            <label><input type="checkbox" data-codex-exclude="code">代码</label>
+            <label><input type="checkbox" data-codex-exclude="other">其他</label>
+          </div>
+          <small>自动记住，项目资产和公用资产都适用。</small>
+        </div>
         <details id="embeddedFilterMenu" class="embedded-filter-menu">
-          <summary><span>筛选</span><small id="embeddedFilterCount" hidden>0</small></summary>
+          <summary aria-label="更多筛选" title="更多筛选"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 5h14M5 10h10M8 15h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><small id="embeddedFilterCount" hidden>0</small></summary>
           <div class="embedded-filter-popover">
             <label>资产类别
               <select id="embeddedCategoryFilter">
@@ -172,6 +190,14 @@
                 <option value="丢弃">丢弃</option>
               </select>
             </label>
+            <label>资产分组
+              <select id="embeddedSmartGroupFilter">
+                <option value="">全部分组</option>
+                <option value="official">正式资产</option>
+                <option value="review">待确认</option>
+                <option value="noise">干扰项</option>
+              </select>
+            </label>
             <label>文件类型
               <select id="embeddedTypeFilter">
                 <option value="">全部类型</option>
@@ -179,35 +205,65 @@
                 <option value="video">视频</option>
                 <option value="audio">音频</option>
                 <option value="frame">帧</option>
-                <option value="contact">联系表</option>
+                <option value="contact">联系表</option><option value="document">文档 / 表格 / 演示</option><option value="web">网页原型</option><option value="code">代码 / 文本</option><option value="archive">压缩包</option><option value="other">其他文件</option>
               </select>
             </label>
             <button id="clearEmbeddedFilters" type="button">清除筛选</button>
           </div>
         </details>
-        <select id="sortSelect" aria-label="资产排序">
+
+
+
+
+        <div class="workflow-cluster">
+          <details id="toolMenu" class="tool-menu">
+            <summary aria-label="更多资产工具" title="更多工具">⋯</summary>
+            <div class="tool-menu-popover">
+              <button id="newFolderButton" type="button" class="new-folder-button" title="在当前层级新建文件夹" hidden><span aria-hidden="true">＋</span><span>新建文件夹</span></button>
+              <button id="organizeProjectButton" type="button" class="project-organize-button workflow-primary" title="整理当前项目文件夹中的全部素材" hidden>自动整理</button>
+              <button id="promptLibraryButton" class="prompt-library-open">提示词库</button>
+              <button id="generationButton" class="generation-open">生成工作台</button>
+              <button id="midjourneyButton" type="button">Midjourney 工作区</button>
+              <button id="threeDWorkbenchButton" class="three-d-open">3D 工作台</button>
+              <button id="rhythmControlButton" class="rhythm-control-open">节奏控制</button>
+              <button id="automationButton" class="automation-open">自动化任务</button>
+              <button id="governanceButton" class="governance-open">存储与恢复</button>
+            </div>
+          </details>
+        </div>
+      </div>
+      <nav id="codexSharedSources" class="resource-shared-sources" aria-label="公用素材库" hidden>
+        <button type="button" data-codex-shared-project="ai-reference-library" aria-pressed="true">精选参考</button>
+        <button type="button" data-codex-shared-project="mj-library" aria-pressed="false">MJ 素材</button>
+        <button type="button" data-open-midjourney class="resource-mj-manage">MJ 管理</button>
+      </nav>
+      <nav class="resource-types" aria-label="文件类型">
+        <button type="button" data-codex-type="" aria-pressed="true">全部</button>
+        <button type="button" data-codex-type="image">图片</button>
+        <button type="button" data-codex-type="video">视频</button>
+        <button type="button" data-codex-type="audio">音频</button>
+        <button type="button" data-codex-type="document">文档</button>
+        <button type="button" data-codex-type="web">网页</button>
+        <button type="button" data-codex-type="code">代码</button>
+        <button type="button" data-codex-type="other">其他</button>
+      </nav>
+    </header>
+    <div class="resource-browse-bar">
+      <button id="codexFolderBack" type="button" hidden aria-label="返回上一级" title="返回上一级">←</button>
+      <select id="codexFolderFilter" aria-label="资产目录"><option value="__all__">全部历史</option></select>
+      <span id="codexVisibleCount" class="resource-visible-count"></span>
+      <select id="sortSelect" aria-label="资产排序">
           <option value="newest">最新优先</option>
           <option value="oldest">最早优先</option>
           <option value="name">按名称</option>
           <option value="size">按大小</option>
         </select>
-        <button id="newFolderButton" type="button" class="new-folder-button" title="在当前层级新建文件夹" hidden><span aria-hidden="true">＋</span><span>新建文件夹</span></button>
-        <button id="organizeProjectButton" type="button" class="project-organize-button workflow-primary" title="整理当前项目文件夹中的全部素材" hidden>自动整理</button>
-        <button id="selectionModeButton" type="button" class="selection-mode-button" aria-pressed="false">批量选择</button>
-        <div class="workflow-cluster">
-          <details id="toolMenu" class="tool-menu">
-            <summary>工作台</summary>
-            <div class="tool-menu-popover">
-              <button id="promptLibraryButton" class="prompt-library-open">提示词库</button>
-              <button id="generationButton" class="generation-open">生成工作台</button>
-              <button id="threeDWorkbenchButton" class="three-d-open">3D 工作台</button>
-              <button id="rhythmControlButton" class="rhythm-control-open">节奏控制</button>
-              <button id="automationButton" class="automation-open">自动化任务</button>
-            </div>
-          </details>
-        </div>
+      <button id="selectionModeButton" type="button" class="selection-mode-button" aria-pressed="false">选择</button>
+      <div class="resource-views" role="group" aria-label="显示方式">
+        <button type="button" data-codex-view="grid" aria-label="网格视图" title="网格" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 2h4.5v4.5H2zM9.5 2H14v4.5H9.5zM2 9.5h4.5V14H2zM9.5 9.5H14V14H9.5z" stroke="currentColor"/></svg></button>
+        <button type="button" data-codex-view="list" aria-label="列表视图" title="列表" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5 3h9M5 8h9M5 13h9M2 3h.5M2 8h.5M2 13h.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
       </div>
-    </header>
+    </div>
 
     <section id="batchBar" class="batch-bar" aria-label="批量操作" hidden>
       <div class="batch-summary">
@@ -585,7 +641,7 @@
     <form method="dialog" class="dialog-head">
       <div>
         <h2>生成结果收件箱</h2>
-        <p>只接住已登记的生图和视频任务；普通下载不会被扫描、复制或移动。</p>
+        <p>只接住已登记的生图和视频任务；归档只复制，普通下载和 Codex 原图都保持原位。</p>
       </div>
       <button value="cancel" class="dialog-close" aria-label="关闭">×</button>
     </form>
@@ -605,7 +661,7 @@
             <select id="activeProfile"></select>
             <small>仅兼容旧配置；生成任务不会使用这里作为兜底。</small>
           </label>
-          <label class="toggle-line wide"><input id="moveAfterArchive" type="checkbox"> 生成结果归档校验成功后，从下载文件夹移走原件</label>
+          <div class="safety-note wide"><input id="moveAfterArchive" type="checkbox" hidden disabled>归档只复制，不移动原文件，避免 Codex 历史消息中的图片和视频失效。</div>
           <label class="wide">下载文件夹
             <input id="inboxSourcePath" type="text" placeholder="C:\Users\你\Downloads">
           </label>
@@ -836,6 +892,149 @@
           <button id="threeDRefresh" type="button">刷新任务</button>
         </div>
         <div id="threeDTaskList" class="three-d-task-list">正在读取 3D 重建任务。</div>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog id="midjourneyDialog" class="automation-dialog midjourney-dialog">
+    <form method="dialog" class="dialog-head">
+      <div>
+        <span class="midjourney-kicker">MIDJOURNEY WORKSPACE</span>
+        <h2>MJ 图片与 P值</h2>
+        <p>只收录 Midjourney 的 u…UUID 下载命名；普通下载不会出现在这里，也不会被移动。</p>
+      </div>
+      <button value="cancel" class="dialog-close" aria-label="关闭">×</button>
+    </form>
+    <div class="midjourney-content">
+      <section class="midjourney-import-panel">
+        <header class="midjourney-section-head">
+          <div>
+            <span>待收录</span>
+            <strong id="midjourneyCandidateCount">正在读取</strong>
+          </div>
+          <button id="refreshMidjourney" type="button">刷新下载</button>
+        </header>
+        <div class="midjourney-import-bar">
+          <label>归入项目
+            <select id="midjourneyTargetProject" aria-label="MJ 图片归入项目"></select>
+          </label>
+          <div>
+            <strong id="midjourneySelectedCount">0 张已选</strong>
+            <small>归档后只保留一份原图，并生成轻量参数记录。</small>
+          </div>
+          <button id="importMidjourney" type="button" class="primary" disabled>移动归档</button>
+        </div>
+        <div id="midjourneyCandidateGrid" class="midjourney-candidate-grid" aria-live="polite"></div>
+      </section>
+
+      <aside class="midjourney-profile-panel">
+        <header class="midjourney-section-head">
+          <div>
+            <span>P值库</span>
+            <strong id="midjourneyProfileCount">0 个收藏</strong>
+          </div>
+          <button id="newMidjourneyProfile" type="button">＋ 收藏 P值</button>
+        </header>
+        <form id="midjourneyProfileForm" class="midjourney-profile-form" hidden>
+          <input id="midjourneyProfileId" type="hidden">
+          <label>P值
+            <input id="midjourneyProfileCode" type="text" placeholder="例如 eo8gh7c" required>
+          </label>
+          <label>风格名
+            <input id="midjourneyProfileName" type="text" placeholder="例如 冷峻电影感">
+          </label>
+          <div class="midjourney-profile-row">
+            <label>评分
+              <select id="midjourneyProfileRating">
+                <option value="0">未评分</option><option value="1">★</option><option value="2">★★</option>
+                <option value="3">★★★</option><option value="4">★★★★</option><option value="5">★★★★★</option>
+              </select>
+            </label>
+            <label>来源
+              <input id="midjourneyProfileSource" type="text" placeholder="自己 / 他人分享">
+            </label>
+          </div>
+          <label>标签
+            <input id="midjourneyProfileTags" type="text" placeholder="人物、电影光、冷色">
+          </label>
+          <label>备注
+            <textarea id="midjourneyProfileNote" rows="3" placeholder="哪里好、适合什么场景"></textarea>
+          </label>
+          <div class="midjourney-profile-actions">
+            <button type="submit" class="primary">保存</button>
+            <button id="cancelMidjourneyProfile" type="button">取消</button>
+          </div>
+        </form>
+        <div id="midjourneyProfileList" class="midjourney-profile-list"></div>
+      </aside>
+    </div>
+  </dialog>
+
+  <dialog id="governanceDialog" class="automation-dialog governance-dialog">
+    <form method="dialog" class="dialog-head">
+      <div>
+        <h2>存储与恢复</h2>
+        <p>统一管理缓存、活动数据、受保护项目与工作台模块。</p>
+      </div>
+      <button value="cancel" class="dialog-close" aria-label="关闭">×</button>
+    </form>
+    <div class="governance-content">
+      <section class="governance-overview" aria-label="数据分层">
+        <article class="governance-tier is-cache">
+          <span>临时缓存</span>
+          <strong id="governanceCacheSize">读取中</strong>
+          <small>可重建 · 7 天 / 512 MB 自动清理</small>
+        </article>
+        <article class="governance-tier is-active">
+          <span>活动工作区</span>
+          <strong id="governanceActiveCount">读取中</strong>
+          <small>可修改 · 自动留恢复点</small>
+        </article>
+        <article class="governance-tier is-archive">
+          <span>受保护内容</span>
+          <strong id="governanceArchiveCount">读取中</strong>
+          <small>不参与自动清理</small>
+        </article>
+        <article class="governance-tier is-system">
+          <span>系统与模块</span>
+          <strong id="governanceModuleCount">读取中</strong>
+          <small>版本与哈希可核对</small>
+        </article>
+      </section>
+
+      <section class="automation-section governance-actions-section">
+        <div class="section-title">
+          <div>
+            <h3>恢复保护</h3>
+            <p>恢复点保存配置、任务绑定、工作台记录和模块版本，不复制项目素材。</p>
+          </div>
+          <button id="refreshGovernance" type="button">刷新状态</button>
+        </div>
+        <div class="governance-actions">
+          <button id="createGovernanceSnapshot" type="button" class="primary">建立恢复点</button>
+          <button id="clearGovernanceCache" type="button">清理工作台缓存</button>
+        </div>
+        <p id="governanceMessage" class="governance-message" role="status" aria-live="polite">正在读取工作台状态。</p>
+      </section>
+
+      <section class="automation-section governance-list-section">
+        <div class="section-title">
+          <div>
+            <h3>最近恢复点</h3>
+            <p>恢复前还会自动再建一个安全恢复点。</p>
+          </div>
+        </div>
+        <div id="governanceSnapshots" class="governance-list">暂无恢复点。</div>
+      </section>
+
+      <section class="automation-section governance-list-section">
+        <div class="section-title">
+          <div>
+            <h3>最近变更</h3>
+            <p>记录工作台模块做过的关键操作，不记录提示词和私密正文。</p>
+          </div>
+        </div>
+        <div id="governanceHistory" class="governance-list">暂无变更记录。</div>
       </section>
     </div>
   </dialog>

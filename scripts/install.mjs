@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createInstallPlan } from "../lib/install-config.mjs";
+import { assetBrowserRuntime, ensureAssetBrowserState, createInstallPlan } from "../lib/install-config.mjs";
 import { access, mkdir, unlink, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -29,6 +29,7 @@ if (options.dryRun) {
   process.stdout.write(`${JSON.stringify(plan)}\n`);
 } else if (options.activate) {
   await access(path.join(plan.installDir, "scripts", "injector.mjs"));
+  await ensureAssetBrowserState(assetBrowserRuntime({ installDir: plan.installDir, stateDir: path.join(plan.home, '.local', 'state', 'codex-sidebar-enhancer') }));
   await mkdir(plan.launchAgentsDir, { recursive: true });
   await mkdir(plan.logsDir, { recursive: true });
   await mkdir(path.dirname(plan.launcherExecutablePath), { recursive: true });

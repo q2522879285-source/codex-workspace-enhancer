@@ -18,6 +18,7 @@ async function fixture() {
   const pending = path.join(root, "Pending");
   await Promise.all([mkdir(inbox), mkdir(project), mkdir(pending)]);
   const config = {
+    storage: { generatedRoot: path.join(root, "Generated") },
     projects: [
       { id: "project-a", name: "Project A", path: project, scanRoots: ["."] },
       { id: "pending-review", name: "待确认", path: pending, scanRoots: ["."] }
@@ -108,6 +109,28 @@ test("armed watcher claims only the exact generated filename", async (t) => {
   assert.equal((await readFile(unrelated, "utf8")), "unrelated");
   await assert.rejects(stat(generated), { code: "ENOENT" });
   assert.equal((await readFile(claims[0].output.path, "utf8")), "generated");
+  assert.ok(claims[0].output.path.startsWith(`${config.storage.generatedRoot}${path.sep}`));
+});
+
+test("missing archive storage leaves the claimed download untouched", async (t) => {
+  const { root, inbox, config, pipeline } = await fixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  delete config.storage;
+  const ticket = await pipeline.create({ kind: "video", projectId: "project-a", generator: "tapnow" }, config);
+  await pipeline.arm(ticket.id, { sourcePath: inbox, expectedName: "unarchived.mp4" });
+  const generated = path.join(inbox, "unarchived.mp4");
+  await writeFile(generated, "preserve original", "utf8");
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+
+  const claims = await pipeline.claimArmedDownloads(config, { settleSeconds: 1 });
+  const current = await pipeline.get(ticket.id);
+
+  assert.equal(claims.length, 0);
+  assert.equal(await readFile(generated, "utf8"), "preserve original");
+  assert.equal(current.status, "awaiting_download");
+  assert.equal(current.claimObservation.state, "claim-failed");
+  assert.match(current.claimObservation.message, /未配置生成资产仓/);
+  assert.equal(current.outputs.length, 0);
 });
 
 test("unnamed watcher fails closed and leaves every download untouched", async (t) => {

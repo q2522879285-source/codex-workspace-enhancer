@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -222,6 +222,14 @@ function relativeOrAbsolute(projectRoot, filePath) {
   return isInside(projectRoot, filePath) ? path.relative(projectRoot, filePath) : path.resolve(filePath);
 }
 
+function outputIdentity(output) {
+  return String(output?.outputId || output?.id || "");
+}
+
+function outputStorePath(output) {
+  return path.resolve(String(output?.storePath || output?.path || ""));
+}
+
 function promptMarkdown(ticket, output, project) {
   const references = (ticket.references || []).length
     ? ticket.references.map((item) => `- ${item}`).join("\n")
@@ -429,6 +437,46 @@ export class GenerationPipeline {
     return ticket;
   }
 
+  async listOutputs({ projectId = "" } = {}) {
+    const registry = await this.readRegistry();
+    return registry.tickets.flatMap((ticket) => (ticket.outputs || []).map((raw) => ({
+      ...raw,
+      managed: Boolean(raw.storePath),
+      outputId: outputIdentity(raw),
+      storePath: outputStorePath(raw),
+      projectId: raw.projectId || ticket.projectId,
+      projectName: raw.projectName || ticket.projectName,
+      caseId: raw.caseId || path.dirname(raw.relativePath || "."),
+      ticketId: ticket.id,
+      threadId: threadIdFor(ticket),
+      sourceTask: String(ticket.sourceContext?.sourceTask || ticket.sourceContext?.taskTitle || ""),
+      generator: ticket.generator,
+      kind: ticket.kind
+    }))).filter((output) => !projectId || output.projectId === projectId);
+  }
+
+  async findOutput(outputId) {
+    const id = String(outputId || "").trim();
+    if (!id) return null;
+    return (await this.listOutputs()).find((output) => output.outputId === id) || null;
+  }
+
+  async updateOutputReview(outputId, review) {
+    return await this.withLock(async () => {
+      const registry = await this.readRegistry();
+      for (const ticket of registry.tickets) {
+        const output = (ticket.outputs || []).find((item) => outputIdentity(item) === outputId);
+        if (!output) continue;
+        const previous = output.review || {};
+        output.review = { ...previous, ...review, updatedAt: new Date().toISOString() };
+        ticket.updatedAt = output.review.updatedAt;
+        await this.writeRegistry(registry);
+        return { output, previous };
+      }
+      throw new Error(`生成输出不存在：${outputId}`);
+    });
+  }
+
   async status() {
     const tickets = await this.list({ limit: 500 });
     const counts = {};
@@ -588,13 +636,15 @@ export class GenerationPipeline {
       const project = projectFor(config, input.projectId);
       const profile = profileFor(config, input.profileId);
       if (profile && profile.projectId !== project.id) throw new Error("移动后的项目和分流项目不一致");
-      const oldPath = path.resolve(String(input.oldPath || ""));
-      const newPath = path.resolve(String(input.newPath || ""));
-      const output = ticket.outputs.find((item) => item.path && path.resolve(item.path).toLowerCase() === oldPath.toLowerCase())
-        || ticket.outputs.find((item) => item.id === input.outputId)
+      const oldPath = input.oldPath ? path.resolve(String(input.oldPath)) : "";
+      const output = ticket.outputs.find((item) => oldPath && item.path && path.resolve(item.path).toLowerCase() === oldPath.toLowerCase())
+        || ticket.outputs.find((item) => outputIdentity(item) === input.outputId)
         || null;
-      if (!output) throw new Error(`生成任务中没有找到待迁移输出：${path.basename(oldPath)}`);
-      if (!isInside(project.path, newPath)) throw new Error("移动后的生成结果跳出了目标项目文件夹");
+      if (!output) throw new Error(`生成任务中没有找到待迁移输出：${input.outputId || path.basename(oldPath)}`);
+      const managed = Boolean(output.storePath);
+      const newRelativePath = cleanRelative(input.newRelativePath ?? (input.newPath ? path.relative(project.path, path.resolve(input.newPath)) : ""), "移动后的逻辑目录");
+      const newPath = managed ? outputStorePath(output) : path.resolve(String(input.newPath || ""));
+      if (!managed && !isInside(project.path, newPath)) throw new Error("移动后的生成结果跳出了目标项目文件夹");
       const ext = path.extname(newPath);
       const stemPath = newPath.slice(0, -ext.length);
       const previous = {
@@ -607,7 +657,7 @@ export class GenerationPipeline {
       ticket.projectName = project.name || project.id;
       ticket.profileId = profile?.id || "";
       ticket.profileName = profile?.name || "";
-      ticket.destinationRelativePath = path.dirname(path.relative(project.path, newPath));
+      ticket.destinationRelativePath = path.dirname(managed ? newRelativePath : path.relative(project.path, newPath));
       ticket.routingResolution = {
         source: "manual-move",
         confidence: "high",
@@ -615,17 +665,22 @@ export class GenerationPipeline {
         matchedOn: "",
         threadId: threadIdFor(ticket)
       };
-      output.path = newPath;
-      output.relativePath = path.relative(project.path, newPath);
-      output.fileName = path.basename(newPath);
-      output.promptPath = `${stemPath}.prompt.md`;
-      output.metaPath = `${stemPath}.meta.json`;
+      output.projectId = project.id;
+      output.projectName = project.name || project.id;
+      output.relativePath = managed ? newRelativePath : path.relative(project.path, newPath);
+      output.caseId = path.dirname(output.relativePath) || ".";
+      output.fileName = path.basename(output.relativePath);
+      if (!managed) {
+        output.path = newPath;
+        output.promptPath = `${stemPath}.prompt.md`;
+        output.metaPath = `${stemPath}.meta.json`;
+      }
       const movedAt = new Date().toISOString();
       ticket.relocationHistory = Array.isArray(ticket.relocationHistory) ? ticket.relocationHistory : [];
-      ticket.relocationHistory.push({ ...previous, movedAt, projectId: project.id, profileId: profile?.id || "", path: newPath });
+      ticket.relocationHistory.push({ ...previous, movedAt, projectId: project.id, profileId: profile?.id || "", path: newPath, relativePath: output.relativePath, movedFile: !managed });
       ticket.updatedAt = movedAt;
       await this.writeRegistry(registry);
-      return { ticket, output, movedAt, previous };
+      return { ticket, output, movedAt, previous, movedFile: !managed };
     });
   }
 
@@ -635,24 +690,27 @@ export class GenerationPipeline {
       const ticket = registry.tickets.find((item) => item.id === ticketId);
       if (!ticket) throw new Error(`生成任务不存在：${ticketId}`);
       const project = projectFor(config, ticket.projectId);
+      const generatedRoot = path.resolve(String(config.storage?.generatedRoot || ""));
+      if (!config.storage?.generatedRoot) throw new Error("未配置生成资产仓");
       const sourcePath = path.resolve(String(input.sourcePath || ""));
+      const previousStatus = ticket.status;
       const sourceStats = await fs.stat(sourcePath);
       if (!sourceStats.isFile()) throw new Error("生成结果不是文件");
       const kind = assetKind(sourcePath);
       if (kind !== ticket.kind) throw new Error(`文件类型与任务不一致：任务是 ${ticket.kind}，文件是 ${kind}`);
 
-      const destinationDir = path.resolve(project.path, cleanRelative(ticket.destinationRelativePath, "生成资产目录"));
-      if (!isInside(project.path, destinationDir)) throw new Error("生成资产目录跳出了项目文件夹");
+      const logicalDir = cleanRelative(ticket.destinationRelativePath, "生成资产目录");
+      const destinationDir = path.join(generatedRoot, "tickets", ticket.id);
       await fs.mkdir(destinationDir, { recursive: true });
       const ext = path.extname(sourcePath).toLowerCase();
       const baseStem = cleanSegment(input.nameStem || ticket.nameStem, "生成资产");
       const takeSuffix = ticket.outputs.length ? `_take${pad(ticket.outputs.length + 1)}` : "";
-      const requestedPath = path.join(destinationDir, `${baseStem}${takeSuffix}${ext}`);
+      const outputId = randomUUID();
+      const requestedPath = path.join(destinationDir, `${outputId}${ext}`);
       const sourceHash = await hashFile(sourcePath);
-      const duplicateOutput = ticket.outputs.find((item) => item.sha256 === sourceHash && item.path);
-      if (duplicateOutput && await exists(duplicateOutput.path) && await hashFile(duplicateOutput.path) === sourceHash) {
-        const sourceIsArchivedOutput = path.resolve(sourcePath).toLowerCase() === path.resolve(duplicateOutput.path).toLowerCase();
-        if (input.moveSource === true && !sourceIsArchivedOutput) await fs.rm(sourcePath, { force: false });
+      const duplicateOutput = ticket.outputs.find((item) => item.sha256 === sourceHash && (item.storePath || item.path));
+      if (duplicateOutput && await exists(outputStorePath(duplicateOutput)) && await hashFile(outputStorePath(duplicateOutput)) === sourceHash) {
+        if (path.resolve(sourcePath).toLowerCase() !== outputStorePath(duplicateOutput).toLowerCase()) await fs.rm(sourcePath, { force: false });
         ticket.status = "archived";
         ticket.updatedAt = new Date().toISOString();
         ticket.inboxBaseline = undefined;
@@ -680,63 +738,87 @@ export class GenerationPipeline {
           throw new Error("生成结果归档校验失败，源文件保持不动");
         }
         await fs.rename(temporaryPath, destinationPath);
-        if (input.moveSource === true) await fs.rm(sourcePath, { force: false });
       }
       const archivedStats = await fs.stat(destinationPath);
       const archivedAt = new Date().toISOString();
-      const relativePath = path.relative(project.path, destinationPath);
+      const logicalFileName = `${baseStem}${takeSuffix}${ext}`;
+      const relativePath = path.join(logicalDir, logicalFileName);
       const output = {
-        id: `${ticket.id}-out-${pad(ticket.outputs.length + 1)}`,
+        id: outputId,
+        outputId,
         path: destinationPath,
+        storePath: destinationPath,
+        projectId: project.id,
+        projectName: project.name || project.id,
+        caseId: logicalDir || ".",
         relativePath,
-        sourcePath: relativeOrAbsolute(project.path, sourcePath),
-        fileName: path.basename(destinationPath),
+        sourcePath: path.basename(sourcePath),
+        fileName: logicalFileName,
         size: archivedStats.size,
         sha256,
         archivedAt,
-        movedSource: input.moveSource === true && !sameFile
+        movedSource: !sameFile,
+        sourcePreserved: sameFile
       };
       const stemPath = destinationPath.slice(0, -ext.length);
       const promptPath = `${stemPath}.prompt.md`;
       const metaPath = `${stemPath}.meta.json`;
       output.promptPath = promptPath;
       output.metaPath = metaPath;
-      await fs.writeFile(promptPath, promptMarkdown(ticket, output, project), "utf8");
-      await fs.writeFile(metaPath, JSON.stringify({
-        schemaVersion: 1,
-        ticket: { ...ticket, outputs: undefined, inboxBaseline: undefined },
-        output,
-        project: { id: project.id, name: project.name || project.id, path: project.path }
-      }, null, 2) + "\n", "utf8");
-
-      const ledgerDir = path.join(project.path, "生成记录");
-      await fs.mkdir(ledgerDir, { recursive: true });
+      const ledgerDir = path.join(generatedRoot, "records");
       const ledgerPath = path.join(ledgerDir, "生成资产台账.jsonl");
-      await fs.appendFile(ledgerPath, JSON.stringify({
-        schemaVersion: 1,
-        ticketId: ticket.id,
-        projectId: ticket.projectId,
-        kind: ticket.kind,
-        generator: ticket.generator,
-        model: ticket.model,
-        prompt: ticket.prompt,
-        negativePrompt: ticket.negativePrompt,
-        references: ticket.references,
-        settings: ticket.settings,
-        episode: ticket.episode,
-        scene: ticket.scene,
-        shot: ticket.shot,
-        role: ticket.role,
-        version: ticket.version,
-        output
-      }) + "\n", "utf8");
-
-      ticket.outputs.push(output);
-      ticket.status = "archived";
-      ticket.updatedAt = archivedAt;
-      ticket.inboxBaseline = undefined;
-      ticket.claimSourcePath = undefined;
-      await this.writeRegistry(registry);
+      try {
+        await fs.writeFile(promptPath, promptMarkdown(ticket, output, project), "utf8");
+        await fs.writeFile(metaPath, JSON.stringify({
+          schemaVersion: 2,
+          ticket: { ...ticket, outputs: undefined, inboxBaseline: undefined },
+          output,
+          project: { id: project.id, name: project.name || project.id, path: project.path }
+        }, null, 2) + "\n", "utf8");
+        await fs.mkdir(ledgerDir, { recursive: true });
+        await fs.appendFile(ledgerPath, JSON.stringify({
+          schemaVersion: 2,
+          ticketId: ticket.id,
+          projectId: ticket.projectId,
+          kind: ticket.kind,
+          generator: ticket.generator,
+          model: ticket.model,
+          prompt: ticket.prompt,
+          negativePrompt: ticket.negativePrompt,
+          references: ticket.references,
+          settings: ticket.settings,
+          episode: ticket.episode,
+          scene: ticket.scene,
+          shot: ticket.shot,
+          role: ticket.role,
+          version: ticket.version,
+          output
+        }) + "\n", "utf8");
+        ticket.outputs.push(output);
+        ticket.status = "archived";
+        ticket.updatedAt = archivedAt;
+        ticket.inboxBaseline = undefined;
+        ticket.claimSourcePath = undefined;
+        await this.writeRegistry(registry);
+      } catch (error) {
+        if (ticket.outputs.at(-1) === output) ticket.outputs.pop();
+        ticket.status = previousStatus;
+        await Promise.all([destinationPath, promptPath, metaPath].map((item) => fs.rm(item, { force: true }).catch(() => {})));
+        await fs.appendFile(ledgerPath, JSON.stringify({ schemaVersion: 2, event: "archive-rolled-back", ticketId: ticket.id, outputId, at: new Date().toISOString() }) + "\n", "utf8").catch(() => {});
+        throw error;
+      }
+      if (!sameFile) {
+        try {
+          await fs.rm(sourcePath, { force: false });
+        } catch (error) {
+          ticket.outputs.pop();
+          ticket.status = previousStatus;
+          await this.writeRegistry(registry);
+          await Promise.all([destinationPath, promptPath, metaPath].map((item) => fs.rm(item, { force: true }).catch(() => {})));
+          await fs.appendFile(ledgerPath, JSON.stringify({ schemaVersion: 2, event: "archive-rolled-back", ticketId: ticket.id, outputId, at: new Date().toISOString() }) + "\n", "utf8").catch(() => {});
+          throw new Error(`源文件删除失败，归档已回滚：${error.message || error}`);
+        }
+      }
       return { ticket, output, ledgerPath };
     });
   }
@@ -810,8 +892,7 @@ export class GenerationPipeline {
 
       try {
         claimed.push(await this.attach(ticket.id, {
-          sourcePath: candidatePath,
-          moveSource: config.automation?.inbox?.transferMode === "move"
+          sourcePath: candidatePath
         }, config));
       } catch (error) {
         await this.withLock(async () => {

@@ -1,3 +1,5 @@
+import { ASSET_GROUPS, classifyAsset } from "./asset-classification.js";
+
 const codexParams = new URLSearchParams(window.location.search);
 const codexEmbedded = codexParams.get("embed") === "codex";
 
@@ -21,6 +23,7 @@ const state = {
   batchBusy: false,
   projectOrganizeBusy: false,
   categoryFilter: "",
+  smartGroupFilter: "",
   statusFilter: "",
   typeFilter: "",
   query: "",
@@ -38,6 +41,7 @@ const state = {
   assetSearchTimer: null,
   threeDTasks: [],
   threeDStatus: null,
+  midjourney: { candidates: [], profiles: [], observedProfiles: [], imports: [], selected: new Set(), editingId: "" },
   autoRefreshTimer: null,
   deferredRefresh: null,
   caseGroupOpen: {},
@@ -48,6 +52,11 @@ const state = {
   codexThreadTitle: codexParams.get("threadTitle") || "当前 Codex 任务",
   codexBindings: [],
   codexBoundProject: "",
+  codexScope: "project",
+  codexSharedProject: "ai-reference-library",
+  codexExcludedTypes: ["code"],
+  codexView: "grid",
+  codexWorkspaceMessage: "",
   workspaceSwitchGeneration: 0,
   caseLoadGeneration: 0,
   assetLoadGeneration: 0,
@@ -108,7 +117,7 @@ function finishWorkspaceCacheRequest(requests, key, request) {
 function mutatesWorkspace(path, options = {}) {
   const method = String(options.method || "GET").toUpperCase();
   if (method === "GET") return false;
-  return /^\/api\/(?:batch-move|trash-assets|restore-trash|folders(?:\/|$)|projects(?:\/|$))/.test(path);
+  return /^\/api\/(?:batch-move|trash-assets|restore-trash|folders(?:\/|$)|projects(?:\/|$)|midjourney(?:\/|$))/.test(path);
 }
 
 document.body.classList.toggle("codex-embedded", codexEmbedded);
@@ -137,6 +146,7 @@ const els = {
   addProjectButton: document.querySelector("#addProjectButton"),
   caseList: document.querySelector("#caseList"),
   categoryFilters: document.querySelector("#categoryFilters"),
+  smartGroupFilters: document.querySelector("#smartGroupFilters"),
   statusFilters: document.querySelector("#statusFilters"),
   typeFilters: document.querySelector("#typeFilters"),
   refreshButton: document.querySelector("#refreshButton"),
@@ -166,6 +176,7 @@ const els = {
   embeddedFilterMenu: document.querySelector("#embeddedFilterMenu"),
   embeddedFilterCount: document.querySelector("#embeddedFilterCount"),
   embeddedCategoryFilter: document.querySelector("#embeddedCategoryFilter"),
+  embeddedSmartGroupFilter: document.querySelector("#embeddedSmartGroupFilter"),
   embeddedStatusFilter: document.querySelector("#embeddedStatusFilter"),
   embeddedTypeFilter: document.querySelector("#embeddedTypeFilter"),
   clearEmbeddedFilters: document.querySelector("#clearEmbeddedFilters"),
@@ -261,6 +272,26 @@ const els = {
   cancelBatchDelete: document.querySelector("#cancelBatchDelete"),
   toastRegion: document.querySelector("#toastRegion"),
   generationButton: document.querySelector("#generationButton"),
+  midjourneyButton: document.querySelector("#midjourneyButton"),
+  midjourneyDialog: document.querySelector("#midjourneyDialog"),
+  midjourneyCandidateCount: document.querySelector("#midjourneyCandidateCount"),
+  midjourneySelectedCount: document.querySelector("#midjourneySelectedCount"),
+  midjourneyTargetProject: document.querySelector("#midjourneyTargetProject"),
+  midjourneyCandidateGrid: document.querySelector("#midjourneyCandidateGrid"),
+  refreshMidjourney: document.querySelector("#refreshMidjourney"),
+  importMidjourney: document.querySelector("#importMidjourney"),
+  midjourneyProfileCount: document.querySelector("#midjourneyProfileCount"),
+  midjourneyProfileList: document.querySelector("#midjourneyProfileList"),
+  newMidjourneyProfile: document.querySelector("#newMidjourneyProfile"),
+  midjourneyProfileForm: document.querySelector("#midjourneyProfileForm"),
+  midjourneyProfileId: document.querySelector("#midjourneyProfileId"),
+  midjourneyProfileCode: document.querySelector("#midjourneyProfileCode"),
+  midjourneyProfileName: document.querySelector("#midjourneyProfileName"),
+  midjourneyProfileRating: document.querySelector("#midjourneyProfileRating"),
+  midjourneyProfileSource: document.querySelector("#midjourneyProfileSource"),
+  midjourneyProfileTags: document.querySelector("#midjourneyProfileTags"),
+  midjourneyProfileNote: document.querySelector("#midjourneyProfileNote"),
+  cancelMidjourneyProfile: document.querySelector("#cancelMidjourneyProfile"),
   generationDialog: document.querySelector("#generationDialog"),
   generationProject: document.querySelector("#generationProject"),
   generationProfile: document.querySelector("#generationProfile"),
@@ -328,7 +359,19 @@ const els = {
   previewCleanup: document.querySelector("#previewCleanup"),
   runCleanup: document.querySelector("#runCleanup"),
   automationSummary: document.querySelector("#automationSummary"),
-  automationResult: document.querySelector("#automationResult")
+  automationResult: document.querySelector("#automationResult"),
+  governanceButton: document.querySelector("#governanceButton"),
+  governanceDialog: document.querySelector("#governanceDialog"),
+  governanceCacheSize: document.querySelector("#governanceCacheSize"),
+  governanceActiveCount: document.querySelector("#governanceActiveCount"),
+  governanceArchiveCount: document.querySelector("#governanceArchiveCount"),
+  governanceModuleCount: document.querySelector("#governanceModuleCount"),
+  governanceMessage: document.querySelector("#governanceMessage"),
+  governanceSnapshots: document.querySelector("#governanceSnapshots"),
+  governanceHistory: document.querySelector("#governanceHistory"),
+  refreshGovernance: document.querySelector("#refreshGovernance"),
+  createGovernanceSnapshot: document.querySelector("#createGovernanceSnapshot"),
+  clearGovernanceCache: document.querySelector("#clearGovernanceCache")
 };
 
 const userStatuses = ["可用", "局部可用", "参考可用", "暂存", "丢弃"];
@@ -348,6 +391,14 @@ function formatSize(bytes) {
   const mb = kb / 1024;
   if (mb < 1024) return `${mb.toFixed(1)} MB`;
   return `${(mb / 1024).toFixed(1)} GB`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+}
+
+function classificationOf(asset) {
+  return classifyAsset(asset);
 }
 
 function statusClass(status) {
@@ -457,7 +508,12 @@ function assetCategory(asset) {
 }
 
 function enrichAsset(asset) {
-  if (asset.category) return asset;
+  if (asset.category) {
+    return {
+      ...asset,
+      categoryLabel: asset.categoryLabel || categoryLabels[asset.category] || "全部资产"
+    };
+  }
   const category = assetCategory(asset);
   return {
     ...asset,
@@ -467,7 +523,9 @@ function enrichAsset(asset) {
 }
 
 function absolutePath(asset) {
+  if (asset.absolutePath) return asset.absolutePath;
   if (asset.isGroup) return `${state.projectRoot}/${asset.groupDir}`;
+  if (asset.managed && asset.resolvedPath) return asset.resolvedPath;
   return `${state.projectRoot}/${asset.relPath}`;
 }
 
@@ -563,50 +621,130 @@ function resolveUsableCreatedProject(projects, expectedId, projectPath) {
 
 function renderCodexTaskContext() {
   if (!state.codexEmbedded) return;
-  els.codexTaskBar.hidden = false;
-  els.codexTaskTitle.textContent = state.codexThreadTitle;
-  els.codexTaskTitle.title = state.codexThreadTitle;
-  const boundName = codexProjectName(state.codexBoundProject);
-  els.codexBindingState.textContent = boundName ? `关联项目：${boundName}` : "关联项目：未设置";
-  els.codexBindingState.classList.toggle("is-bound", Boolean(boundName));
-  els.codexProjectSelect.replaceChildren();
-  for (const project of state.projects.filter((item) => item.exists)) {
-    const option = document.createElement("option");
-    option.value = project.id;
-    option.textContent = project.name;
-    els.codexProjectSelect.append(option);
+  if (els.codexTaskBar) els.codexTaskBar.hidden = false;
+  const project = state.projects.find((item) => item.id === state.selectedProject);
+  const title = document.querySelector("#codexResourceTitle");
+  if (title) {
+    title.textContent = state.codexScope === "shared" ? (state.codexSharedProject === "mj-library" ? "MJ 素材库" : "精选参考") : project?.name || "项目资产";
+    title.title = project?.path || title.textContent;
   }
-  if (state.projects.some((project) => project.id === state.selectedProject)) {
-    els.codexProjectSelect.value = state.selectedProject;
+  const subtitle = document.querySelector("#codexResourceSubtitle");
+  if (subtitle) {
+    subtitle.textContent = state.codexScope === "project" ? state.codexWorkspaceMessage || "" : "";
+    subtitle.hidden = !subtitle.textContent;
   }
-  const cannotBind = !state.codexThreadId || els.codexProjectSelect.value === "ai-reference-library";
-  els.codexBindProject.disabled = cannotBind;
-  els.codexBindProject.title = !state.codexThreadId
-    ? "未识别当前任务"
-    : cannotBind ? "精选库只用于手动收录，不关联任务" : "把这个项目关联到当前 Codex 任务";
-  document.querySelectorAll("[data-codex-workspace]").forEach((button) => {
-    const target = button.dataset.codexWorkspace === "bound"
-      ? state.codexBoundProject
-      : button.dataset.codexWorkspace;
-    button.disabled = button.dataset.codexWorkspace === "bound" && !state.codexBoundProject;
-    button.classList.toggle("active", Boolean(target && target === state.selectedProject));
-    button.setAttribute("aria-pressed", String(Boolean(target && target === state.selectedProject)));
+  if (els.codexTaskTitle) els.codexTaskTitle.textContent = state.codexThreadTitle;
+  if (els.codexBindingState) els.codexBindingState.textContent = "";
+  document.querySelectorAll("[data-codex-scope]").forEach((button) => {
+    const active = button.dataset.codexScope === state.codexScope;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  const sharedSources = document.querySelector("#codexSharedSources");
+  if (sharedSources) sharedSources.hidden = state.codexScope !== "shared";
+  document.querySelectorAll("[data-codex-shared-project]").forEach((button) => {
+    const active = button.dataset.codexSharedProject === state.codexSharedProject;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
 }
 
 async function loadCodexBinding() {
-  if (!state.codexEmbedded || !state.codexThreadId) return;
-  try {
-    const data = await api("/api/generation/bindings");
-    state.codexBindings = data.bindings || [];
-    const binding = state.codexBindings.find((item) => String(item.threadId) === state.codexThreadId);
-    if (binding && state.projects.some((project) => project.id === binding.projectId && project.exists)) {
-      state.codexBoundProject = binding.projectId;
-      state.selectedProject = binding.projectId;
-    }
-  } catch (error) {
-    showToast(`任务关联读取失败：${error.message}`, { tone: "error" });
+  if (!state.codexEmbedded) return;
+  const data = await api(`/api/codex/workspace?threadId=${encodeURIComponent(state.codexThreadId)}`);
+  state.codexWorkspaceMessage = data.message || "";
+  state.codexBoundProject = data.project?.id || "";
+  if (data.project) {
+    const index = state.projects.findIndex((item) => item.id === data.project.id);
+    if (index < 0) state.projects.push(data.project);
+    else state.projects[index] = { ...state.projects[index], ...data.project };
   }
+  // A refresh follows the selected scope, not a default project shortcut.
+  const projectId = state.codexScope === "shared" ? state.codexSharedProject || "ai-reference-library" : state.codexBoundProject;
+  if (state.selectedProject !== projectId) state.selectedCase = "";
+  state.selectedProject = projectId;
+}
+
+function normalizeCodexExcludedTypes(types) {
+  return [...new Set(types.filter((type) => ["image", "video", "audio", "document", "web", "code", "other"].includes(type)))];
+}
+
+function readCodexExcludedTypes() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem("codex-asset-console:excluded-types-v1"));
+    if (Array.isArray(saved)) return normalizeCodexExcludedTypes(saved);
+  } catch {}
+  return ["code"];
+}
+
+function setCodexExcludedTypes(types) {
+  state.codexExcludedTypes = normalizeCodexExcludedTypes(types);
+  const activeKind = { archive: "other", frame: "image", contact: "image" }[state.typeFilter] || state.typeFilter;
+  if (state.codexExcludedTypes.includes(activeKind)) {
+    state.typeFilter = "";
+    if (els.typeFilter) els.typeFilter.value = "";
+  }
+  if (state.selectedAsset && state.codexExcludedTypes.includes(resourceFilterKind(state.selectedAsset))) state.selectedAsset = null;
+  exitSelectionMode();
+  try {
+    window.localStorage.setItem("codex-asset-console:excluded-types-v1", JSON.stringify(state.codexExcludedTypes));
+  } catch {}
+  render();
+}
+
+function renderCodexExclusions() {
+  const excluded = state.codexExcludedTypes || [];
+  document.querySelectorAll("[data-codex-exclude]").forEach((input) => {
+    input.checked = excluded.includes(input.dataset.codexExclude);
+  });
+  const count = document.querySelector("#codexExclusionsCount");
+  if (count) count.textContent = String(excluded.length);
+  document.querySelectorAll("[data-codex-type]").forEach((button) => {
+    button.hidden = excluded.includes(button.dataset.codexType);
+  });
+}
+
+function renderCodexResourceControls() {
+  if (!state.codexEmbedded) return;
+  renderCodexExclusions();
+  const back = document.querySelector("#codexFolderBack");
+  if (back) back.hidden = state.codexScope !== "shared" || state.selectedCase === "__all__";
+  const folders = document.querySelector("#codexFolderFilter");
+  if (folders) {
+    folders.replaceChildren(...state.cases.map((item) => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.id === "__all__" ? (state.codexScope === "shared" ? "全部合集" : "全部目录") : item.relPath || item.name || item.id;
+      return option;
+    }));
+    folders.value = state.selectedCase;
+  }
+  els.assetGrid.dataset.view = state.codexView;
+  document.querySelectorAll("[data-codex-type]").forEach((button) => {
+    const active = button.dataset.codexType === state.typeFilter;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelectorAll("[data-codex-view]").forEach((button) => {
+    const active = button.dataset.codexView === state.codexView;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
+async function selectCodexScope(scope, sharedProject = state.codexSharedProject || "ai-reference-library") {
+  if (!["project", "shared"].includes(scope)) return;
+  if (scope === "shared" && !["ai-reference-library", "mj-library"].includes(sharedProject)) return;
+  const projectId = scope === "shared" ? sharedProject : state.codexBoundProject;
+  if (scope === state.codexScope && projectId === state.selectedProject) return;
+  if (!projectId || !state.projects.some((item) => item.id === projectId && item.exists)) {
+    showToast(scope === "shared" ? "公用资产位置不可用" : state.codexWorkspaceMessage || "当前任务项目暂不可用", { tone: "error" });
+    return;
+  }
+  state.codexScope = scope;
+  if (scope === "shared") state.codexSharedProject = sharedProject;
+  await selectProject(projectId);
+  renderCodexTaskContext();
 }
 
 async function selectProject(projectId) {
@@ -622,6 +760,8 @@ async function selectProject(projectId) {
     state.selectedProject = projectId;
     state.selectedCase = "";
     state.selectedAsset = null;
+    state.cases = [];
+    renderCases();
     exitSelectionMode();
     setCategoryFilter("");
     renderProjects();
@@ -635,7 +775,7 @@ async function selectProject(projectId) {
 }
 
 async function saveCodexProjectBinding(projectId) {
-  if (!state.codexThreadId || !projectId || projectId === "ai-reference-library") return;
+  if (!state.codexThreadId || !projectId || ["ai-reference-library", "mj-library"].includes(projectId)) return;
   const data = await api("/api/generation/bindings", {
     method: "POST",
     body: JSON.stringify({
@@ -651,7 +791,7 @@ async function saveCodexProjectBinding(projectId) {
 
 async function bindCurrentCodexProject() {
   const projectId = els.codexProjectSelect.value;
-  if (!state.codexThreadId || !projectId || projectId === "ai-reference-library") return;
+  if (!state.codexThreadId || !projectId || ["ai-reference-library", "mj-library"].includes(projectId)) return;
   els.codexBindProject.disabled = true;
   try {
     await saveCodexProjectBinding(projectId);
@@ -776,6 +916,7 @@ function currentFolderCreationContext() {
 
 function syncNewFolderButton() {
   if (!els.newFolderButton) return;
+  if (state.codexEmbedded) { els.newFolderButton.hidden = true; return; }
   const context = currentFolderCreationContext();
   els.newFolderButton.hidden = !context;
   els.newFolderButton.disabled = !context;
@@ -945,7 +1086,7 @@ function sendAssetToCodex(asset) {
     action: "use-in-codex",
     path: absolutePath(asset),
     name: asset.name,
-    kind: asset.kind
+    kind: resourceKind(asset)
   }, "*");
 }
 
@@ -956,16 +1097,14 @@ function sendSelectedAssetsToCodex() {
     source: "asset-console",
     action: "use-many-in-codex",
     paths: assets.map(absolutePath),
-    names: assets.map((asset) => asset.name)
+    names: assets.map((asset) => asset.name),
+    kinds: assets.map(resourceKind)
   }, "*");
 }
 
 function showCodexAttachResult(count = 1) {
-  if (!els.codexAttachResult) return;
-  els.codexAttachResultTitle.textContent = count > 1 ? `已附加 ${count} 项素材` : "已附加 1 项素材";
-  els.codexAttachResultDetail.textContent = "素材路径已写入当前对话输入框，尚未发送。";
-  els.codexAttachResult.hidden = false;
-  els.codexReturnToComposer?.focus();
+  hideCodexAttachResult();
+  showToast(`已添加 ${count} 项引用到输入框上方`);
 }
 
 function hideCodexAttachResult({ focusGrid = false } = {}) {
@@ -987,7 +1126,32 @@ function returnToCodexComposer() {
 
 function wireCodexIntegration() {
   if (!state.codexEmbedded) return;
-  els.codexBindProject.addEventListener("click", () => bindCurrentCodexProject());
+  state.codexExcludedTypes = readCodexExcludedTypes();
+  document.querySelectorAll("[data-codex-exclude]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const types = new Set(state.codexExcludedTypes);
+      if (input.checked) types.add(input.dataset.codexExclude);
+      else types.delete(input.dataset.codexExclude);
+      setCodexExcludedTypes([...types]);
+    });
+  });
+  document.querySelector("#codexRestoreTypes")?.addEventListener("click", () => setCodexExcludedTypes([]));
+  document.querySelectorAll("[data-codex-scope]").forEach((button) => {
+    button.addEventListener("click", () => selectCodexScope(button.dataset.codexScope).catch(showError));
+  });
+  document.querySelectorAll("[data-codex-shared-project]").forEach((button) => {
+    button.addEventListener("click", () => selectCodexScope("shared", button.dataset.codexSharedProject).catch(showError));
+  });
+  document.querySelector("#codexFolderFilter")?.addEventListener("change", (event) => {
+    activateCase(event.target.value);
+  });
+  document.querySelector("#codexFolderBack")?.addEventListener("click", () => activateCase(sharedParentCaseId()));
+  document.querySelectorAll("[data-codex-type]").forEach((button) => {
+    button.addEventListener("click", () => { state.typeFilter = button.dataset.codexType; render(); });
+  });
+  document.querySelectorAll("[data-codex-view]").forEach((button) => {
+    button.addEventListener("click", () => { state.codexView = button.dataset.codexView; render(); });
+  });
   els.codexNewProjectButton?.addEventListener("click", openCodexNewProjectDialog);
   els.codexNewProjectForm?.addEventListener("submit", createCodexProject);
   els.codexNewProjectDialog?.querySelectorAll("[data-codex-project-cancel]").forEach((button) => {
@@ -1027,7 +1191,7 @@ async function loadConfig() {
 async function loadProjects() {
   const data = await api("/api/projects");
   state.projects = data.projects;
-  if (!state.selectedProject) {
+  if (!state.codexEmbedded && !state.selectedProject) {
     const dailyEntry = state.projects.find((project) => project.id === "pending-review" && project.exists);
     state.selectedProject = state.codexEmbedded && dailyEntry ? dailyEntry.id : state.projects[0]?.id || "";
   }
@@ -1054,12 +1218,18 @@ function renderAutomationForm() {
   const automation = state.automation;
   if (!automation || !els.inboxSourcePath) return;
   const inbox = automation.inbox || {};
+  const ticketedOnly = inbox.capturePolicy !== "all-downloads";
   const cleanup = automation.cleanup || {};
   document.querySelectorAll(".legacy-route-field").forEach((element) => {
     element.hidden = Boolean(automation.routing?.enabled);
   });
+  document.querySelectorAll(".active-project-field").forEach((element) => {
+    element.hidden = ticketedOnly;
+  });
+  els.previewOrganizer.hidden = ticketedOnly;
+  els.runOrganizer.hidden = ticketedOnly;
   els.inboxEnabled.checked = Boolean(inbox.enabled);
-  els.moveAfterArchive.checked = inbox.transferMode === "move";
+  els.moveAfterArchive.checked = false;
   renderAutomationProfiles();
   els.inboxSourcePath.value = inbox.sourcePath || "";
   els.inboxPollSeconds.value = inbox.pollSeconds || 15;
@@ -1088,7 +1258,7 @@ function renderAutomationProfiles() {
     option.textContent = "未启用多项目分流";
     els.activeProfile.append(option);
     els.activeProfile.disabled = true;
-    els.automationButton.textContent = "下载收件箱";
+    els.automationButton.textContent = "生成收件箱";
     return;
   }
   els.activeProfile.disabled = false;
@@ -1100,7 +1270,7 @@ function renderAutomationProfiles() {
   }
   els.activeProfile.value = routing.activeProfileId;
   const active = routing.profiles.find((profile) => profile.id === routing.activeProfileId);
-  els.automationButton.textContent = active ? `收件箱 · ${active.name}` : "下载收件箱";
+  els.automationButton.textContent = "生成收件箱";
 }
 
 function numericValue(element, fallback) {
@@ -1112,11 +1282,12 @@ function collectAutomationForm() {
   return {
     inbox: {
       enabled: els.inboxEnabled.checked,
+      capturePolicy: state.automation?.inbox?.capturePolicy || "ticketed-only",
       sourcePath: els.inboxSourcePath.value.trim(),
       projectId: els.inboxProject.value,
       basePath: els.inboxBasePath.value.trim(),
       startedAt: state.automation?.inbox?.startedAt || null,
-      transferMode: els.moveAfterArchive.checked ? "move" : "copy",
+      transferMode: "copy",
       moveApprovedAt: state.automation?.inbox?.moveApprovedAt || null,
       settleSeconds: state.automation?.inbox?.settleSeconds || 8,
       pollSeconds: numericValue(els.inboxPollSeconds, 15),
@@ -1149,10 +1320,6 @@ async function saveAutomationSettings({ quiet = false } = {}) {
   let confirmCleanup = false;
   let confirmPurge = false;
   let confirmMove = false;
-  if (automation.inbox.transferMode === "move") {
-    confirmMove = window.confirm("确认启用自动转移？工具会在目标文件完整校验成功后，从下载文件夹移走原件。");
-    if (!confirmMove) return false;
-  }
   if (automation.cleanup.enabled && !automation.cleanup.dryRun) {
     confirmCleanup = window.confirm("确认启用实际清理？到期文件会先移入隔离区；只处理已归档且内容核对一致的原文件。");
     if (!confirmCleanup) return false;
@@ -1196,9 +1363,14 @@ function showAutomationResult(title, data) {
   const total = groups.reduce((sum, [key]) => sum + data[key].length, 0);
   els.automationSummary.textContent = `${title} · ${groups.map(([key, label]) => `${label} ${data[key].length}`).join(" / ")}`;
   els.automationResult.innerHTML = "";
+  if (data.disabledReason) {
+    const note = document.createElement("p");
+    note.textContent = data.disabledReason;
+    els.automationResult.append(note);
+  }
   if (!total) {
     const empty = document.createElement("p");
-    empty.textContent = "没有需要处理的文件。";
+    empty.textContent = data.disabledReason ? "没有已登记的生成结果需要处理。" : "没有需要处理的文件。";
     els.automationResult.append(empty);
     return;
   }
@@ -1252,6 +1424,177 @@ async function openAutomationDialog() {
     else if (status.organizerError) showAutomationMessage("需要设置", status.organizerError);
   } catch (error) {
     showAutomationMessage("状态读取失败", error.message, true);
+  }
+}
+
+function governanceActionLabel(action) {
+  return {
+    "snapshot.created": "建立恢复点",
+    "snapshot.restored": "恢复活动数据",
+    "module.restored": "回滚工作台模块",
+    "cache.cleared": "清理工作台缓存",
+    "cache.auto-cleaned": "自动整理临时缓存",
+    "workspace.mutation": "工作台变更"
+  }[action] || action || "工作台变更";
+}
+
+function governanceDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "时间未知" : date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function renderGovernanceStatus(data) {
+  const tiers = data.tiers || {};
+  els.governanceCacheSize.textContent = formatSize(tiers.cache?.bytes || 0);
+  els.governanceActiveCount.textContent = `${(tiers.active?.items || []).filter((item) => item.exists).length} 项状态`;
+  els.governanceArchiveCount.textContent = `${(tiers.archive?.items || []).filter((item) => item.exists).length} 个项目`;
+  els.governanceModuleCount.textContent = `${(tiers.system?.modules || []).filter((item) => item.exists).length} 个模块`;
+
+  els.governanceSnapshots.replaceChildren();
+  const snapshots = data.snapshots || [];
+  if (!snapshots.length) {
+    els.governanceSnapshots.textContent = "尚未建立恢复点。";
+  } else {
+    for (const snapshot of snapshots.slice(0, 10)) {
+      const row = document.createElement("article");
+      row.className = "governance-list-row";
+      const copy = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = snapshot.label || "恢复点";
+      const meta = document.createElement("span");
+      const stateCount = (snapshot.files || []).filter((item) => item.tier === "active").length;
+      const moduleCount = (snapshot.files || []).filter((item) => item.tier === "system").length;
+      meta.textContent = `${governanceDate(snapshot.createdAt)} · ${stateCount} 项状态${moduleCount ? ` · ${moduleCount} 个模块` : ""}`;
+      copy.append(title, meta);
+      const actions = document.createElement("div");
+      actions.className = "governance-row-actions";
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.textContent = "恢复状态";
+      restore.addEventListener("click", async () => {
+        if (!window.confirm(`恢复到“${snapshot.label || "这个恢复点"}”？恢复前会再自动建立一个安全恢复点。`)) return;
+        restore.disabled = true;
+        els.governanceMessage.textContent = "正在安全恢复活动数据……";
+        try {
+          const result = await api("/api/workspace-governance/restore", {
+            method: "POST",
+            body: JSON.stringify({ snapshotId: snapshot.id, confirm: true })
+          });
+          clearWorkspaceCaches();
+          els.governanceMessage.textContent = `已恢复 ${result.result.restored.length} 项状态，并保留恢复前安全点。`;
+          await loadGovernanceStatus();
+        } catch (error) {
+          els.governanceMessage.textContent = `恢复失败：${error.message}`;
+        } finally {
+          restore.disabled = false;
+        }
+      });
+      actions.append(restore);
+      if (snapshot.includesModules) {
+        for (const [component, label] of [["frontend", "回滚界面"], ["backend", "回滚后端"]]) {
+          const rollback = document.createElement("button");
+          rollback.type = "button";
+          rollback.textContent = label;
+          rollback.addEventListener("click", async () => {
+            const suffix = component === "backend" ? "服务会安全退出，关闭资产控制台后重新打开即可生效。" : "重新打开资产控制台后生效。";
+            if (!window.confirm(`${label}到“${snapshot.label || "这个恢复点"}”？当前版本会先自动保存。${suffix}`)) return;
+            rollback.disabled = true;
+            els.governanceMessage.textContent = `正在${label}……`;
+            try {
+              const data = await api("/api/workspace-governance/modules/restore", {
+                method: "POST",
+                body: JSON.stringify({ snapshotId: snapshot.id, components: [component], confirm: true })
+              });
+              const count = data.result?.restored?.length || 0;
+              els.governanceMessage.textContent = component === "backend"
+                ? `已回滚 ${count} 个后端模块。请关闭资产控制台，再重新打开。`
+                : `已回滚 ${count} 个界面模块。重新打开资产控制台即可看到旧版本。`;
+              if (component !== "backend") await loadGovernanceStatus();
+            } catch (error) {
+              els.governanceMessage.textContent = `${label}失败：${error.message}`;
+              rollback.disabled = false;
+            }
+          });
+          actions.append(rollback);
+        }
+      }
+      row.append(copy, actions);
+      els.governanceSnapshots.append(row);
+    }
+  }
+
+  els.governanceHistory.replaceChildren();
+  const history = data.history || [];
+  if (!history.length) {
+    els.governanceHistory.textContent = "尚无工作台变更记录。";
+  } else {
+    for (const entry of history.slice(0, 12)) {
+      const row = document.createElement("article");
+      row.className = "governance-history-row";
+      const label = document.createElement("strong");
+      label.textContent = governanceActionLabel(entry.action);
+      const detail = document.createElement("span");
+      const route = entry.detail?.route ? ` · ${entry.detail.route.replace(/^\/api\//, "")}` : "";
+      detail.textContent = `${governanceDate(entry.at)}${route}`;
+      row.append(label, detail);
+      els.governanceHistory.append(row);
+    }
+  }
+}
+
+async function loadGovernanceStatus() {
+  const data = await api("/api/workspace-governance/status");
+  renderGovernanceStatus(data);
+  els.governanceMessage.textContent = "状态已同步。缓存超过 7 天或 512 MB 会自动整理，项目素材不会被自动处理。";
+  return data;
+}
+
+async function openGovernanceDialog() {
+  els.governanceDialog.showModal();
+  els.governanceMessage.textContent = "正在读取工作台状态……";
+  try {
+    await loadGovernanceStatus();
+  } catch (error) {
+    els.governanceMessage.textContent = `状态读取失败：${error.message}`;
+  }
+}
+
+async function createGovernanceSnapshot() {
+  els.createGovernanceSnapshot.disabled = true;
+  els.governanceMessage.textContent = "正在建立恢复点……";
+  try {
+    const data = await api("/api/workspace-governance/snapshots", {
+      method: "POST",
+      body: JSON.stringify({ label: `手动恢复点 ${new Date().toLocaleString("zh-CN", { hour12: false })}`, reason: "manual", includeModules: true })
+    });
+    const stateCount = data.snapshot.files.filter((item) => item.tier === "active").length;
+    const moduleCount = data.snapshot.files.filter((item) => item.tier === "system").length;
+    els.governanceMessage.textContent = `恢复点已建立：${stateCount} 项活动状态、${moduleCount} 个模块；未复制项目素材。`;
+    await loadGovernanceStatus();
+  } catch (error) {
+    els.governanceMessage.textContent = `建立失败：${error.message}`;
+  } finally {
+    els.createGovernanceSnapshot.disabled = false;
+  }
+}
+
+async function clearGovernanceCache() {
+  if (!window.confirm("清理工作台拥有的临时缓存？项目素材、任务记录、配置和归档不会被删除。")) return;
+  els.clearGovernanceCache.disabled = true;
+  els.governanceMessage.textContent = "正在清理可重建缓存……";
+  try {
+    const data = await api("/api/workspace-governance/cache/clear", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true })
+    });
+    clearWorkspaceCaches();
+    const bytes = (data.result.cleared || []).reduce((sum, item) => sum + (item.bytes || 0), 0);
+    els.governanceMessage.textContent = `缓存已清理，共释放 ${formatSize(bytes)}；活动数据和项目素材未改动。`;
+    await loadGovernanceStatus();
+  } catch (error) {
+    els.governanceMessage.textContent = `清理失败：${error.message}`;
+  } finally {
+    els.clearGovernanceCache.disabled = false;
   }
 }
 
@@ -1518,7 +1861,12 @@ function collectGenerationForm() {
         retainInFinalAudio: false
       }
     } : {},
-    sourceContext: { createdFrom: "asset-browser-ui" }
+    sourceContext: {
+      createdFrom: "asset-browser-ui",
+      ...(state.codexEmbedded && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(state.codexThreadId || "")
+        ? { threadId: state.codexThreadId, taskTitle: state.codexThreadTitle }
+        : {})
+    }
   };
 }
 
@@ -1533,7 +1881,7 @@ async function generationAction(ticketId, action, body = {}) {
 async function revealGenerationOutput(ticket, output) {
   await api("/api/reveal", {
     method: "POST",
-    body: JSON.stringify({ projectId: ticket.projectId, path: output.relativePath })
+    body: JSON.stringify({ projectId: ticket.projectId, path: output.relativePath, outputId: output.outputId || "" })
   });
 }
 
@@ -1624,9 +1972,11 @@ async function openGenerationDialog() {
 
 function commitCases(entry, projectId) {
   state.projectRoot = entry.projectRoot;
-  state.cases = entry.cases;
+  state.cases = state.codexEmbedded
+    ? [{ id: "__all__", name: "全部目录" }, ...entry.cases.filter((item) => item.id !== "__all__")]
+    : entry.cases;
   if (!state.cases.some((item) => item.id === state.selectedCase)) {
-    const defaultCase = projectId === "dated-workspace"
+    const defaultCase = state.codexEmbedded ? state.cases[0] : projectId === "dated-workspace"
       ? latestDailyCase(state.cases)
       : state.cases[0];
     state.selectedCase = defaultCase?.id || "";
@@ -1644,7 +1994,10 @@ function prepareAssetsForCaseChange(projectId) {
 }
 
 async function loadCases(options = {}) {
-  if (!state.selectedProject) return;
+  if (!state.selectedProject) {
+    if (state.codexEmbedded) { state.cases = []; state.selectedCase = ""; state.projectRoot = ""; }
+    return;
+  }
   const projectId = state.selectedProject;
   const workspaceGeneration = options.workspaceGeneration ?? state.workspaceSwitchGeneration;
   const isCurrentWorkspace = () => projectId === state.selectedProject
@@ -1717,6 +2070,9 @@ function commitAssets(assets, { cached = false, status = "" } = {}) {
 async function loadAssets(options = {}) {
   const projectId = state.selectedProject;
   const caseId = state.selectedCase;
+  const sharedMidjourney = state.codexEmbedded && state.codexScope === "shared" && projectId === "mj-library";
+  const casePath = sharedMidjourney && caseId !== "__all__"
+    ? pathParts(state.cases.find((item) => item.id === caseId)?.relPath || caseId) : [];
   const workspaceGeneration = options.workspaceGeneration ?? state.workspaceSwitchGeneration;
   const isCurrentWorkspace = () => projectId === state.selectedProject
     && caseId === state.selectedCase
@@ -1747,7 +2103,11 @@ async function loadAssets(options = {}) {
     && isCurrentWorkspace();
   let data;
   try {
-    data = await api(`/api/assets?project=${encodeURIComponent(projectId)}&case=${encodeURIComponent(caseId)}`);
+    data = await api(`/api/assets?project=${encodeURIComponent(projectId)}&case=${encodeURIComponent(sharedMidjourney ? "__all__" : caseId)}`);
+    if (casePath.length) data.assets = data.assets.filter((asset) => {
+      const parts = pathParts(asset.relPath).slice(0, -1);
+      return casePath.every((part, index) => parts[index] === part);
+    });
   } catch (error) {
     finishWorkspaceCacheRequest(state.assetCacheRequestGeneration, cacheKey, cacheRequest);
     if (!isCurrentLoad()) return false;
@@ -1764,7 +2124,20 @@ async function loadAssets(options = {}) {
 
 function activeDetailMedia() {
   const media = els.detailPreview.querySelector("video, audio");
-  return media || null;
+  return media && !media.paused && !media.ended ? media : null;
+}
+
+function resumeDeferredRefreshWhenPlaybackStops() {
+  const media = els.detailPreview.querySelector("video, audio");
+  if (!media || media.dataset.refreshResumeBound) return;
+  media.dataset.refreshResumeBound = "true";
+  const resume = () => {
+    if (!activeDetailMedia()) flushDeferredRefresh().catch((error) => {
+      els.refreshStatus.textContent = `刷新失败：${error.message}`;
+    });
+  };
+  media.addEventListener("pause", resume);
+  media.addEventListener("ended", resume);
 }
 
 async function performBackgroundRefresh(options = {}) {
@@ -2110,7 +2483,7 @@ function activateCase(caseId) {
 }
 
 async function selectCase(caseId) {
-  if (!caseId || caseId === state.selectedCase) return;
+  if (!caseId || caseId === state.selectedCase || !state.cases.some((item) => item.id === caseId)) return;
   const previousCase = state.selectedCase;
   const previousCategoryFilter = state.categoryFilter;
   const generation = ++state.workspaceSwitchGeneration;
@@ -2264,6 +2637,7 @@ function renderHierarchicalCases() {
 }
 
 function folderOverviewContext() {
+  if (state.codexEmbedded) return null;
   const root = state.cases.find((item) => item.id === state.selectedCase);
   if (!root) return null;
   const rootParts = pathParts(root.relPath || root.id);
@@ -2282,6 +2656,66 @@ function pickFolderPreviewAssets(assets, limit = 4) {
     indexes.add(Math.round(index * (sorted.length - 1) / (limit - 1)));
   }
   return [...indexes].map((index) => sorted[index]);
+}
+
+function sharedParentCaseId() {
+  const current = state.cases.find((item) => item.id === state.selectedCase);
+  const parts = pathParts(current?.relPath || state.selectedCase).slice(0, -1);
+  if (!parts.length) return "__all__";
+  return state.cases.find((item) => pathParts(item.relPath || item.id).join("/") === parts.join("/"))?.id || "__all__";
+}
+
+function sharedAssetCollections(assets) {
+  if (!state.codexEmbedded || state.codexScope !== "shared" || state.query.trim() || state.multiSelect) return null;
+  const current = state.cases.find((item) => item.id === state.selectedCase);
+  const rootParts = state.selectedCase === "__all__" ? [] : pathParts(current?.relPath || state.selectedCase);
+  const cases = new Map(state.cases.filter((item) => item.id !== "__all__")
+    .map((item) => [pathParts(item.relPath || item.id).join("/"), item]));
+  const folders = new Map();
+  const loose = [];
+  for (const asset of assets) {
+    const assetParts = pathParts(asset.relPath).slice(0, -1);
+    if (!rootParts.every((part, index) => assetParts[index] === part) || assetParts.length <= rootParts.length) {
+      loose.push(asset); continue;
+    }
+    const parts = assetParts.slice(0, rootParts.length + 1);
+    const key = parts.join("/");
+    const item = key && cases.get(key);
+    if (!item) { loose.push(asset); continue; }
+    if (!folders.has(key)) folders.set(key, { entry: { item, parts }, assets: [] });
+    folders.get(key).assets.push(asset);
+  }
+  return folders.size ? { folders: [...folders.values()].sort((a, b) => a.entry.parts.at(-1).localeCompare(b.entry.parts.at(-1), "zh-CN")), loose } : null;
+}
+
+function renderSharedCollections(collections) {
+  const sections = new Map();
+  for (const folder of collections.folders) {
+    const section = folder.entry.parts.length > 1 ? folder.entry.parts.at(-2) : state.selectedProject === "mj-library" ? "P值" : "分类";
+    if (!sections.has(section)) sections.set(section, []);
+    sections.get(section).push(folder);
+  }
+  for (const [name, folders] of sections) {
+    const mjProfileGroup = state.selectedProject === "mj-library" && folders[0].entry.parts.length === 1;
+    const heading = document.createElement("h3");
+    heading.className = "resource-collection-section";
+    heading.textContent = `${name} · ${folders.length} 个${mjProfileGroup ? "组合" : "合集"}`;
+    els.assetGrid.append(heading);
+    if (mjProfileGroup) {
+      const note = document.createElement("p");
+      note.className = "resource-collection-section";
+      note.textContent = "按文件名记录的 P 组合";
+      els.assetGrid.append(note);
+    }
+    for (const folder of folders) els.assetGrid.append(renderFolderPreviewCard(folder.entry, folder.assets));
+  }
+  if (collections.loose.length) {
+    const heading = document.createElement("h3");
+    heading.className = "resource-collection-section";
+    heading.textContent = "独立文件";
+    els.assetGrid.append(heading);
+    for (const asset of collections.loose) els.assetGrid.append(renderAssetCard(asset));
+  }
 }
 
 function renderFolderPreviewCard(entry, assets) {
@@ -2304,6 +2738,11 @@ function renderFolderPreviewCard(entry, assets) {
   heading.className = "folder-card-heading";
   const title = document.createElement("strong");
   title.textContent = entry.parts.at(-1) || entry.item.name;
+  title.title = entry.item.relPath || entry.item.id;
+  if (state.codexEmbedded && state.selectedProject === "mj-library") {
+    title.textContent = title.textContent.replaceAll("+", " + ");
+    title.style.webkitLineClamp = "unset";
+  }
   const actions = document.createElement("div");
   actions.className = "folder-card-actions";
   const renameButton = document.createElement("button");
@@ -2318,11 +2757,39 @@ function renderFolderPreviewCard(entry, assets) {
   openButton.textContent = "打开";
   openButton.title = `打开 ${title.textContent}`;
   openButton.addEventListener("click", () => activateCase(entry.item.id));
-  actions.append(renameButton, openButton);
+  if (!state.codexEmbedded) actions.append(renameButton);
+  actions.append(openButton);
   heading.append(title, actions);
   const meta = document.createElement("p");
-  meta.textContent = `${entry.item.mediaCount ?? assets.length} 个素材`;
-  body.append(heading, meta);
+  const parent = entry.parts.slice(1, -1).join(" / ");
+  meta.textContent = state.codexEmbedded
+    ? `${assets.length} 项${parent ? ` · ${parent}` : ""}`
+    : `${entry.item.mediaCount ?? assets.length} 个素材`;
+  body.append(heading);
+  const profileName = entry.parts.at(-1) || "";
+  if (state.codexEmbedded && state.selectedProject === "mj-library" && /^P-[a-z0-9]+(?:\+[a-z0-9]+)*$/i.test(profileName)) {
+    const parameter = `--p ${profileName.slice(2).replaceAll("+", " ")}`;
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "folder-card-copy-p";
+    copyButton.textContent = "复制 P";
+    copyButton.title = `复制 ${parameter}`;
+    copyButton.setAttribute("aria-label", `复制 P 值参数 ${parameter}`);
+    copyButton.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(parameter);
+        showToast("已复制 P 值参数");
+      } catch (error) {
+        showError(error);
+      }
+    });
+    const footer = document.createElement("div");
+    footer.className = "folder-card-actions folder-card-footer";
+    footer.append(meta, copyButton);
+    body.append(footer);
+  } else {
+    body.append(meta);
+  }
   previewButton.append(preview);
   previewButton.title = `打开 ${title.textContent}`;
   previewButton.setAttribute("aria-label", `打开文件夹 ${title.textContent}`);
@@ -2387,6 +2854,15 @@ function renderCategoryCounts() {
   });
 }
 
+function renderSmartGroupCounts() {
+  const counts = { official: 0, review: 0, noise: 0, "": state.assets.length };
+  for (const asset of state.assets.map(enrichAsset)) counts[classificationOf(asset).group] += 1;
+  els.smartGroupFilters?.querySelectorAll("[data-smart-group]").forEach((button) => {
+    const group = button.dataset.smartGroup;
+    button.innerHTML = `<span>${ASSET_GROUPS[group] || "全部分组"}</span><small>${counts[group] || 0}</small>`;
+  });
+}
+
 function setCategoryFilter(category) {
   state.categoryFilter = category;
   els.categoryFilters.querySelectorAll("[data-category]").forEach((button) => {
@@ -2399,9 +2875,10 @@ function setCategoryFilter(category) {
 function syncEmbeddedFilterControls() {
   if (!state.codexEmbedded || !els.embeddedFilterCount) return;
   if (els.embeddedCategoryFilter) els.embeddedCategoryFilter.value = state.categoryFilter;
+  if (els.embeddedSmartGroupFilter) els.embeddedSmartGroupFilter.value = state.smartGroupFilter;
   if (els.embeddedStatusFilter) els.embeddedStatusFilter.value = state.statusFilter;
   if (els.embeddedTypeFilter) els.embeddedTypeFilter.value = state.typeFilter;
-  const count = [state.categoryFilter, state.statusFilter, state.typeFilter].filter(Boolean).length;
+  const count = [state.categoryFilter, state.smartGroupFilter, state.statusFilter, state.typeFilter].filter(Boolean).length;
   els.embeddedFilterCount.textContent = String(count);
   els.embeddedFilterCount.hidden = count === 0;
   els.embeddedFilterMenu?.classList.toggle("has-filters", count > 0);
@@ -2409,10 +2886,12 @@ function syncEmbeddedFilterControls() {
 
 function clearAssetDiscoveryFilters() {
   state.query = "";
+  state.smartGroupFilter = "";
   state.statusFilter = "";
   state.typeFilter = "";
   if (els.searchInput) els.searchInput.value = "";
   setCategoryFilter("");
+  els.smartGroupFilters?.querySelectorAll("[data-smart-group]").forEach((button) => button.classList.toggle("active", !button.dataset.smartGroup));
   els.statusFilters.querySelectorAll("[data-status]").forEach((button) => button.classList.toggle("active", !button.dataset.status));
   els.typeFilters.querySelectorAll("[data-type]").forEach((button) => button.classList.toggle("active", !button.dataset.type));
   els.embeddedFilterMenu?.removeAttribute("open");
@@ -2424,9 +2903,17 @@ function filteredAssets() {
   const q = state.query.trim().toLowerCase();
   const enriched = state.assets.map(enrichAsset);
   let assets = enriched.filter((asset) => {
+    if (state.codexEmbedded && state.codexExcludedTypes?.includes(resourceFilterKind(asset))) return false;
     const status = displayStatus(asset);
+    const classification = classificationOf(asset);
     if (state.categoryFilter && asset.category !== state.categoryFilter) return false;
-    if (state.typeFilter && asset.kind !== state.typeFilter) return false;
+    if (state.smartGroupFilter && classification.group !== state.smartGroupFilter) return false;
+    if (state.typeFilter) {
+      const kind = state.codexEmbedded
+        ? (["archive", "frame", "contact"].includes(state.typeFilter) ? (state.typeFilter === "archive" ? resourceKind(asset) : asset.kind) : resourceFilterKind(asset))
+        : asset.kind;
+      if (kind !== state.typeFilter) return false;
+    }
     if (state.statusFilter) {
       if (state.statusFilter === "待用户判断") {
         if (asset.userStatus) return false;
@@ -2442,7 +2929,12 @@ function filteredAssets() {
       asset.notes,
       asset.initialStatus,
       asset.userStatus,
-      asset.kind
+      asset.kind,
+      asset.smartGroup,
+      Array.isArray(asset.tags) ? asset.tags.join(" ") : asset.tags,
+      classification.label,
+      classification.source,
+      classification.reason
     ].join(" ").toLowerCase();
     return haystack.includes(q);
   });
@@ -2626,7 +3118,7 @@ function updateBatchBar() {
   syncProjectOrganizeButton();
   document.body.classList.toggle("selection-mode", state.multiSelect);
   els.selectionModeButton.setAttribute("aria-pressed", String(state.multiSelect));
-  els.selectionModeButton.textContent = state.multiSelect ? "退出选择" : "批量选择";
+  els.selectionModeButton.textContent = state.codexEmbedded ? (state.multiSelect ? "完成" : "选择") : (state.multiSelect ? "退出选择" : "批量选择");
   els.batchBar.hidden = !state.multiSelect;
   els.batchCount.textContent = String(count);
   els.batchMoveAssets.disabled = !count || state.batchBusy;
@@ -2661,15 +3153,18 @@ function updateBatchBar() {
 function enterSelectionMode() {
   state.multiSelect = true;
   updateBatchBar();
+  if (els.assetGrid.classList.contains("shared-collections")) render();
 }
 
 function exitSelectionMode() {
+  const wasSelecting = state.multiSelect;
   state.multiSelect = false;
   state.compareMode = false;
   state.selectedAssetKeys.clear();
   state.selectionAnchorKey = "";
   updateBatchBar();
   updateAssetSelection();
+  if (wasSelecting && state.codexEmbedded && state.codexScope === "shared") render();
 }
 
 function toggleAssetSelection(asset, options = {}) {
@@ -2732,6 +3227,7 @@ function buildSmartBatches(assets) {
 }
 
 function shouldUseSmartBatches(assets) {
+  if (state.codexEmbedded) return false;
   return ["pending-review", "dated-workspace"].includes(state.selectedProject)
     && state.sort === "newest"
     && assets.length >= 4
@@ -2752,21 +3248,158 @@ function appendSmartBatchHeading(batch, target = els.assetGrid) {
   target.append(heading);
 }
 
-function mediaPreview(asset, controls = false) {
-  const sourceAttribute = controls ? `src="${asset.mediaUrl}"` : `data-media-src="${asset.mediaUrl}"`;
-  if (asset.kind === "video") {
-    return `<video ${controls ? "controls" : ""} preload="${controls ? "metadata" : "none"}" ${sourceAttribute}></video>`;
+function resourceKind(asset) {
+  if (asset.type) return asset.type;
+  if (["image", "frame", "contact"].includes(asset.kind)) return "image";
+  if (["audio", "video"].includes(asset.kind)) return asset.kind;
+  const extension = (asset.name || asset.relPath || "").split(".").pop().toLowerCase();
+  if (["png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "bmp"].includes(extension)) return "image";
+  if (["mp4", "webm", "mov", "m4v", "mkv"].includes(extension)) return "video";
+  if (["mp3", "wav", "ogg", "m4a", "flac", "aac"].includes(extension)) return "audio";
+  if (["html", "htm"].includes(extension)) return "html";
+  if (extension === "pdf") return "pdf";
+  if (["md", "markdown"].includes(extension)) return "markdown";
+  if (["doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "csv"].includes(extension)) return "office";
+  if (["js", "mjs", "cjs", "ts", "tsx", "jsx", "py", "json", "css", "xml", "yaml", "yml", "sh", "ps1", "sql", "java", "c", "cpp", "h", "go", "rs"].includes(extension)) return "code";
+  if (["zip", "7z", "rar", "tar", "gz"].includes(extension)) return "archive";
+  return "document";
+}
+
+function resourceFilterKind(asset) {
+  const kind = resourceKind(asset);
+  if (["pdf", "markdown", "office", "document"].includes(kind)) return "document";
+  if (kind === "html") return "web";
+  if (["archive", "other"].includes(kind)) return "other";
+  return kind;
+}
+
+function resourceKindLabel(asset) {
+  const kind = resourceKind(asset);
+  if (kind === "office") {
+    if (/\.(xlsx?|csv|ods)$/i.test(asset.name || "")) return "表格";
+    if (/\.(pptx?|odp)$/i.test(asset.name || "")) return "演示文稿";
   }
-  if (asset.kind === "audio") {
+  return { image: "图片", video: "视频", audio: "音频", html: "网页 / 原型", pdf: "PDF", markdown: "Markdown", office: "文档", document: "文档", code: "代码", archive: "压缩包" }[kind] || "文件";
+}
+
+const resourceTextPreviewCache = new Map();
+
+function readResourceTextPreview(asset) {
+  const key = JSON.stringify([asset.absolutePath || asset.previewUrl, String(asset.mtimeMs || 0)]);
+  if (!resourceTextPreviewCache.has(key)) {
+    const request = api(asset.previewUrl);
+    resourceTextPreviewCache.set(key, request);
+    if (resourceTextPreviewCache.size > 80) resourceTextPreviewCache.delete(resourceTextPreviewCache.keys().next().value);
+    request.catch(() => { if (resourceTextPreviewCache.get(key) === request) resourceTextPreviewCache.delete(key); });
+  }
+  return resourceTextPreviewCache.get(key);
+}
+
+async function hydrateResourceCardSnippet(target) {
+  const asset = { previewUrl: target.dataset.resourcePreviewUrl, absolutePath: target.dataset.resourcePath, mtimeMs: target.dataset.resourceMtime };
+  delete target.dataset.resourcePreviewUrl;
+  deferredMediaObserver?.unobserve(target);
+  try {
+    const data = await readResourceTextPreview(asset);
+    if (target.isConnected) target.textContent = String(data.text || "文件没有可显示的文本").trim().split(/\r?\n/).slice(0, 4).join("\n").slice(0, 200);
+  } catch {
+    if (target.isConnected) target.textContent = "打开详情或原文件查看内容";
+  }
+}
+
+async function loadResourceTextPreview(asset) {
+  const target = els.detailPreview.querySelector("[data-resource-text-preview]");
+  if (!target || !asset.previewUrl) return;
+  try {
+    const data = await readResourceTextPreview(asset);
+    if (state.selectedAsset?.id !== asset.id || !target.isConnected) return;
+    target.textContent = `${data.text || "文件没有可显示的文本"}${data.truncated ? "\n\n…预览已截短，可下载原文件查看完整内容。" : ""}`;
+  } catch (error) {
+    if (state.selectedAsset?.id === asset.id && target.isConnected) target.textContent = `预览不可用：${error.message}。可下载原文件。`;
+  }
+}
+
+function renderCodexResourceDetail(asset) {
+  const source = asset.sourceTask || asset.sourceContext?.taskTitle || asset.sourceContext?.sourceTask || "";
+  const promptPath = asset.promptPath || "";
+  els.quickMoveAsset.hidden = true;
+  els.detailBody.innerHTML = `
+    <div class="resource-detail-meta"><span>${escapeHtml(resourceKindLabel(asset))}</span><span>${formatSize(asset.size)}</span><time>${new Date(asset.mtimeMs).toLocaleString()}</time></div>
+    <div class="detail-row"><label>原文件</label><div class="mono">${escapeHtml(absolutePath(asset))}</div></div>
+    ${source ? `<div class="detail-row"><label>来源任务</label><div>${escapeHtml(source)}</div></div>` : ""}
+    ${asset.ticketId ? `<div class="detail-row"><label>生成记录</label><div class="mono">${escapeHtml(asset.ticketId)}</div></div>` : ""}
+    ${promptPath ? `<div class="detail-row"><label>提示词来源</label><div class="mono">${escapeHtml(promptPath)}</div>${asset.promptUrl ? `<a href="${escapeHtml(asset.promptUrl)}" download>下载提示词</a>` : ""}</div>` : ""}
+    ${asset.prompt ? `<details class="resource-prompt"><summary>生成提示词</summary><pre>${escapeHtml(asset.prompt)}</pre></details>` : ""}
+    ${asset.notes ? `<div class="detail-row"><label>备注</label><div>${escapeHtml(asset.notes)}</div></div>` : ""}
+    <div class="detail-actions">
+      <button id="useInCodex" class="codex-primary-action">附加到当前任务</button>
+      <a href="${escapeHtml(asset.downloadUrl)}" download>下载原文件</a>
+      <button id="copyPath">复制路径</button><button id="revealAsset">打开位置</button>
+    </div>`;
+  els.detailBody.querySelector("#useInCodex").addEventListener("click", () => sendAssetToCodex(asset));
+  els.detailBody.querySelector("#copyPath").addEventListener("click", () => copyPath(asset));
+  els.detailBody.querySelector("#revealAsset").addEventListener("click", () => reveal(asset));
+  void loadResourceTextPreview(asset);
+}
+
+function mediaPreview(asset, controls = false) {
+  if (state.codexEmbedded && !["image", "video", "audio"].includes(resourceKind(asset))) {
+    const kind = resourceKind(asset);
+    if (controls && kind === "html") return `<iframe class="resource-document-preview" title="${escapeHtml(asset.name)}" sandbox="allow-scripts" src="${escapeHtml(asset.htmlUrl || asset.mediaUrl)}"></iframe>`;
+    if (controls && ["markdown", "code", "office", "document", "archive"].includes(kind) && asset.previewUrl) return '<pre class="resource-text-preview" data-resource-text-preview>正在读取内容…</pre>';
+    if (!controls && ["markdown", "code", "office", "document", "archive"].includes(kind) && asset.previewUrl) return `<div class="resource-file-preview resource-snippet-preview"><span class="resource-snippet-kind">${escapeHtml(resourceKindLabel(asset))}</span><pre class="resource-card-snippet" data-resource-preview-url="${escapeHtml(asset.previewUrl)}" data-resource-path="${escapeHtml(asset.absolutePath || "")}" data-resource-mtime="${escapeHtml(asset.mtimeMs || 0)}">正在读取内容…</pre></div>`;
+    return `<div class="resource-file-preview"><span class="resource-file-kind">${escapeHtml(resourceKindLabel(asset))}</span><span class="resource-file-extension">${escapeHtml((asset.name || "").split(".").pop()?.toUpperCase() || "FILE")}</span>${controls ? `<span>${kind === "pdf" ? "PDF 暂不支持内嵌预览，在文件夹中打开原文件" : "可下载原文件，或在文件夹中打开"}</span>` : ""}</div>`;
+  }
+  const sourceAttribute = controls ? `src="${escapeHtml(asset.mediaUrl)}"` : `data-media-src="${escapeHtml(asset.mediaUrl)}"`;
+  if ((state.codexEmbedded ? resourceKind(asset) : asset.kind) === "video") {
+    return controls
+      ? `<video controls preload="metadata" muted playsinline ${sourceAttribute}></video>`
+      : `<video preload="none" muted playsinline ${sourceAttribute}></video><button type="button" class="media-play-button" data-action="toggle-media" aria-label="播放 ${escapeHtml(asset.name)}"><span aria-hidden="true">▶</span><span data-media-action-label>播放</span></button>`;
+  }
+  if ((state.codexEmbedded ? resourceKind(asset) : asset.kind) === "audio") {
+    const duration = formatMediaDuration(asset.durationSeconds ?? asset.duration);
     return `
       <div class="audio-preview">
         <div class="audio-mark">AUDIO</div>
         <audio ${controls ? "controls" : ""} preload="${controls ? "metadata" : "none"}" ${sourceAttribute}></audio>
+        ${controls ? "" : `<button type="button" class="media-play-button audio-play-button" data-action="toggle-media" aria-label="试听 ${escapeHtml(asset.name)}"><span aria-hidden="true">▶</span><span data-media-action-label>试听</span><span class="media-duration" data-media-duration>${duration}</span></button>`}
       </div>
     `;
   }
   const loading = controls ? "" : ' loading="lazy" decoding="async"';
   return `<img ${sourceAttribute} alt=""${loading}>`;
+}
+
+function formatMediaDuration(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return "--:--";
+  return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, "0")}`;
+}
+
+function updateCardMediaButton(card, media) {
+  const button = card.querySelector(".media-play-button");
+  if (!button) return;
+  const playing = !media.paused && !media.ended;
+  button.classList.toggle("is-playing", playing);
+  button.querySelector("[aria-hidden]").textContent = playing ? "Ⅱ" : "▶";
+  button.querySelector("[data-media-action-label]").textContent = playing ? "暂停" : (media instanceof HTMLAudioElement ? "试听" : "播放");
+  button.setAttribute("aria-label", `${playing ? "暂停" : media instanceof HTMLAudioElement ? "试听" : "播放"} ${card.querySelector(".card-title")?.textContent || "媒体"}`);
+  const duration = button.querySelector("[data-media-duration]");
+  if (duration) duration.textContent = formatMediaDuration(media.duration);
+}
+
+async function toggleCardMedia(card) {
+  const media = card.querySelector("video, audio");
+  if (!media) return;
+  if (!media.paused && !media.ended) {
+    media.pause();
+    return;
+  }
+  document.querySelectorAll(".asset-card video, .asset-card audio").forEach((other) => {
+    if (other !== media && !other.paused) other.pause();
+  });
+  hydrateDeferredMedia(media);
+  await media.play();
 }
 
 let deferredMediaObserver = null;
@@ -2775,12 +3408,12 @@ let deferredMediaScrollRoot = null;
 let deferredMediaHydrationTimer = 0;
 
 function hydrateDeferredMedia(media) {
+  if (media?.dataset?.resourcePreviewUrl) return hydrateResourceCardSnippet(media);
   const source = media?.dataset?.mediaSrc;
   if (!source) return;
   media.src = source;
   delete media.dataset.mediaSrc;
   if (media instanceof HTMLMediaElement) {
-    media.preload = "metadata";
     media.load();
   }
   deferredMediaObserver?.unobserve(media);
@@ -2788,10 +3421,10 @@ function hydrateDeferredMedia(media) {
 
 function hydrateMediaNearViewport(root = deferredMediaRoot) {
   if (!root) return;
-  const scrollRoot = document.querySelector(".main");
+  const scrollRoot = state.codexEmbedded ? els.assetGrid : document.querySelector(".main");
   const viewport = scrollRoot?.getBoundingClientRect() || { top: 0, bottom: window.innerHeight };
   const margin = 480;
-  for (const media of root.querySelectorAll("[data-media-src]")) {
+  for (const media of root.querySelectorAll("[data-media-src], [data-resource-preview-url]")) {
     const rect = media.getBoundingClientRect();
     if (rect.top > viewport.bottom + margin) break;
     if (rect.bottom >= viewport.top - margin) hydrateDeferredMedia(media);
@@ -2817,14 +3450,14 @@ function observeDeferredMedia(root = els.assetGrid) {
   deferredMediaRoot = root;
   deferredMediaObserver?.disconnect();
   hydrateMediaNearViewport(root);
-  const mediaItems = [...root.querySelectorAll("[data-media-src]")];
+  const mediaItems = [...root.querySelectorAll("[data-media-src], [data-resource-preview-url]")];
+  const scrollRoot = state.codexEmbedded ? els.assetGrid : document.querySelector(".main");
+  bindDeferredMediaScrollRoot(scrollRoot);
   if (!mediaItems.length) return;
   if (!("IntersectionObserver" in window)) {
-    mediaItems.forEach(hydrateDeferredMedia);
+    mediaItems.filter((media) => !media.dataset.resourcePreviewUrl).forEach(hydrateDeferredMedia);
     return;
   }
-  const scrollRoot = document.querySelector(".main");
-  bindDeferredMediaScrollRoot(scrollRoot);
   deferredMediaObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (entry.isIntersecting) hydrateDeferredMedia(entry.target);
@@ -2864,24 +3497,27 @@ function renderAssetCard(asset) {
   const card = document.createElement("article");
   card.className = `asset-card ${asset.isGroup ? "group-card" : ""} ${state.selectedAsset?.id === asset.id ? "selected" : ""}`;
   card.dataset.assetId = asset.id;
+  if (state.codexEmbedded) card.dataset.resourceKind = resourceKind(asset);
   card.dataset.assetKey = assetSelectionKey(asset);
   card.classList.toggle("batch-selected", state.selectedAssetKeys.has(assetSelectionKey(asset)));
   const status = displayStatus(asset);
+  const classification = classificationOf(asset);
   const actionLabel = asset.isGroup ? "展开" : "查看";
-  const moveAction = asset.isGroup ? "" : `<button data-action="move">移动</button>`;
+  const moveAction = asset.isGroup || state.codexEmbedded ? "" : `<button data-action="move">移动</button>`;
   const codexAction = state.codexEmbedded && !asset.isGroup
-    ? '<button data-action="use-in-codex" class="card-use-in-codex">附加到对话</button>'
+    ? '<button data-action="use-in-codex" class="card-use-in-codex" aria-label="附加到对话" title="添加到输入框上方，不自动发送">引用</button>'
     : "";
   const downloadAction = asset.isGroup
     ? `<button data-action="folder">文件夹</button>`
-    : `<a href="${asset.downloadUrl}" download>下载</a>`;
+    : `<a href="${escapeHtml(asset.downloadUrl)}" download>下载</a>`;
   card.innerHTML = `
     <div class="preview">
       ${mediaPreview(asset)}
-      ${asset.isGroup ? "" : `<button type="button" class="card-select-toggle" data-action="toggle-select" aria-label="选择 ${asset.name}" aria-pressed="${state.selectedAssetKeys.has(assetSelectionKey(asset))}"><span aria-hidden="true">✓</span></button>`}
+      ${asset.isGroup ? "" : `<button type="button" class="card-select-toggle" data-action="toggle-select" aria-label="选择 ${escapeHtml(asset.name)}" aria-pressed="${state.selectedAssetKeys.has(assetSelectionKey(asset))}"><span aria-hidden="true">✓</span></button>`}
       <div class="badge-row">
-        <span class="badge">${asset.isGroup ? `${asset.groupCount} 项` : asset.version || asset.kind}</span>
-        <span class="badge">${asset.categoryLabel || asset.kind}</span>
+        <span class="badge">${escapeHtml(asset.isGroup ? `${asset.groupCount} 项` : asset.version || asset.kind)}</span>
+        <span class="badge">${escapeHtml(asset.categoryLabel || asset.kind)}</span>
+        <span class="badge smart-group-badge group-${escapeHtml(classification.group)}">${escapeHtml(classification.label)}</span>
       </div>
       <div class="card-actions">
         ${codexAction}
@@ -2892,19 +3528,28 @@ function renderAssetCard(asset) {
       </div>
     </div>
     <div class="card-body">
-      <p class="card-title">${asset.name}</p>
+      <p class="card-title">${escapeHtml(asset.name)}</p>
       <div class="card-meta">
-        <span class="status ${statusClass(status)}">${status}</span>
+        <span class="status ${escapeHtml(statusClass(status))}">${escapeHtml(status)}</span>
         <span>${formatSize(asset.size)}</span>
+        ${state.codexEmbedded ? `<span>${escapeHtml(resourceKindLabel(asset))}</span><time>${new Date(asset.mtimeMs).toLocaleDateString()}</time>` : ""}
       </div>
+      <div class="classification-summary" title="${escapeHtml(classification.reason)}">
+        <span>${escapeHtml(classification.source)}</span><span>${escapeHtml(classification.confidence)}置信</span>
+      </div>
+      <p class="classification-reason">${escapeHtml(classification.reason)}</p>
     </div>
   `;
   card.tabIndex = 0;
   card.setAttribute("role", "group");
-  card.setAttribute("aria-label", `${asset.name}，${status}。按回车查看`);
+  card.setAttribute("aria-label", `${asset.name}，${classification.label}，质量状态 ${status}。按回车查看`);
   card.querySelector(".card-title")?.setAttribute("title", asset.name);
   card.addEventListener("click", (event) => {
     const action = event.target.closest("[data-action]")?.dataset.action;
+    if (action === "toggle-media") {
+      event.stopPropagation();
+      return toggleCardMedia(card).catch((error) => showToast(`无法播放：${error.message}`, { tone: "error" }));
+    }
     if (action === "toggle-select") return toggleAssetSelection(asset, { range: event.shiftKey });
     if (action === "reveal") return openFolder(asset);
     if (action === "folder") return openFolder(asset);
@@ -2928,10 +3573,17 @@ function renderAssetCard(asset) {
     if (state.multiSelect && !asset.isGroup) toggleAssetSelection(asset, { range: event.shiftKey });
     else selectAsset(asset);
   });
+  const media = card.querySelector("video, audio");
+  if (media) {
+    for (const eventName of ["play", "pause", "ended", "loadedmetadata"]) {
+      media.addEventListener(eventName, () => updateCardMediaButton(card, media));
+    }
+  }
   return card;
 }
 
 function render() {
+  renderCodexResourceControls();
   syncEmbeddedFilterControls();
   syncNewFolderButton();
   syncProjectOrganizeButton();
@@ -2945,7 +3597,15 @@ function render() {
   }
   els.assetGrid.classList.remove("folder-overview-grid");
   const assets = filteredAssets();
+  const collections = sharedAssetCollections(assets);
+  els.assetGrid.classList.toggle("shared-collections", Boolean(collections));
+  const visibleCount = document.querySelector("#codexVisibleCount");
+  if (state.codexEmbedded && visibleCount) {
+    visibleCount.textContent = collections ? `${collections.folders.length} 合集` : `${assets.length} 项`;
+    visibleCount.title = `${assets.length} 项资产`;
+  }
   renderCategoryCounts();
+  renderSmartGroupCounts();
   const categoryName = categoryLabels[state.categoryFilter] || "全部资产";
   const rawCategoryCount = state.categoryFilter
     ? state.assets.map(enrichAsset).filter((asset) => asset.category === state.categoryFilter).length
@@ -2958,7 +3618,7 @@ function render() {
   deferredMediaObserver?.disconnect();
   els.assetGrid.innerHTML = "";
   if (!assets.length) {
-    const hasDiscoveryFilters = Boolean(state.query.trim() || state.categoryFilter || state.statusFilter || state.typeFilter);
+    const hasDiscoveryFilters = Boolean(state.query.trim() || state.categoryFilter || state.smartGroupFilter || state.statusFilter || state.typeFilter);
     els.assetGrid.innerHTML = `
       <div class="empty-state">
         <h3>${hasDiscoveryFilters ? "没有匹配的素材" : `${categoryName}暂无资产`}</h3>
@@ -2967,6 +3627,8 @@ function render() {
       </div>
     `;
     els.assetGrid.querySelector('[data-action="clear-empty-filters"]')?.addEventListener("click", clearAssetDiscoveryFilters);
+  } else if (collections) {
+    renderSharedCollections(collections);
   } else if (shouldUseSmartBatches(assets)) {
     const fragment = document.createDocumentFragment();
     let index = 0;
@@ -3013,6 +3675,10 @@ function cancelElementAnimations(element) {
 }
 
 function renderCaseBreadcrumb(currentProject, currentCase) {
+  if (state.codexEmbedded) {
+    els.caseTitle.textContent = currentCase?.id === "__all__" ? "全部历史" : currentCase?.name || "项目资产";
+    return;
+  }
   els.caseTitle.innerHTML = "";
   if (!currentProject || !currentCase) {
     els.caseTitle.textContent = "资产看板";
@@ -3169,13 +3835,19 @@ function renderDetail() {
   document.body.classList.add("has-selection");
   els.quickMoveAsset.hidden = Boolean(asset.isGroup);
   const status = displayStatus(asset);
+  const classification = classificationOf(asset);
   els.detailName.textContent = asset.name;
   if (els.detailPreview.dataset.assetId !== asset.id) {
     els.detailPreview.innerHTML = mediaPreview(asset, true);
     els.detailPreview.dataset.assetId = asset.id;
   }
   configureDetailPreviewFit();
+  resumeDeferredRefreshWhenPlaybackStops();
   els.detailBody.className = "detail-body";
+  if (state.codexEmbedded && !asset.isGroup) {
+    renderCodexResourceDetail(asset);
+    return;
+  }
   if (asset.isGroup) {
     els.detailBody.innerHTML = `
       <div class="detail-row">
@@ -3185,6 +3857,10 @@ function renderDetail() {
       <div class="detail-row">
         <label>首尾帧</label>
         <div class="mono">第一帧：${asset.groupFirst?.name || "-"}<br>最后帧：${asset.groupLast?.name || "-"}</div>
+      </div>
+      <div class="detail-row classification-detail">
+        <label>资产分组</label>
+        <div><strong class="classification-pill group-${classification.group}">${classification.label}</strong><span>${escapeHtml(classification.confidence)}置信 · ${escapeHtml(classification.source)}</span><p>${escapeHtml(classification.reason)}</p></div>
       </div>
       <div class="detail-actions">
         <button id="copyPath">复制文件夹路径</button>
@@ -3207,6 +3883,10 @@ function renderDetail() {
     <div class="detail-row">
       <label>信息</label>
       <div class="mono">类型：${asset.kind}<br>版本：${asset.version || "-"}<br>大小：${formatSize(asset.size)}<br>修改：${new Date(asset.mtimeMs).toLocaleString()}<br>主代理初判：${asset.initialStatus}</div>
+    </div>
+    <div class="detail-row classification-detail">
+      <label>资产分组</label>
+      <div><strong class="classification-pill group-${classification.group}">${classification.label}</strong><span>${escapeHtml(classification.confidence)}置信 · ${escapeHtml(classification.source)}</span><p>${escapeHtml(classification.reason)}</p><small>资产分组与下方质量判断分别记录。</small></div>
     </div>
     <div class="detail-row">
       <label class="status-label">用户判断 <span id="statusSaveState">${asset.userStatus ? `已保存：${asset.userStatus}` : "点击即自动保存"}</span></label>
@@ -3563,6 +4243,7 @@ function currentProjectOrganizeContext() {
 
 function syncProjectOrganizeButton() {
   if (!els.organizeProjectButton) return;
+  if (state.codexEmbedded) { els.organizeProjectButton.hidden = true; return; }
   const context = currentProjectOrganizeContext();
   els.organizeProjectButton.hidden = !context.visible;
   const empty = !state.assets.length;
@@ -3782,9 +4463,16 @@ function moveRequestItem(asset) {
     sourceProjectId: asset.projectId,
     sourcePath: asset.relPath,
     sourceCaseId: asset.caseId,
-    sourceAssetId: asset.caseRelPath,
+    sourceAssetId: asset.outputId || asset.caseRelPath,
+    outputId: asset.outputId || "",
     fileName: asset.name
   };
+}
+
+function projectDirname(relativePath) {
+  const normalized = String(relativePath || "").replace(/\\/g, "/");
+  const separator = normalized.lastIndexOf("/");
+  return separator < 0 ? "" : normalized.slice(0, separator);
 }
 
 function reverseMoveItems(results) {
@@ -3792,9 +4480,10 @@ function reverseMoveItems(results) {
     sourceProjectId: result.targetProjectId,
     sourcePath: result.targetRelativePath,
     sourceCaseId: result.reviewMeta?.caseId || "",
-    sourceAssetId: result.reviewMeta?.assetId || "",
+    sourceAssetId: result.outputId || result.reviewMeta?.assetId || "",
+    outputId: result.outputId || "",
     targetProjectId: result.sourceProjectId,
-    targetDirectory: String(result.sourceRelativePath || "").replace(/[\\/][^\\/]+$/, ""),
+    targetDirectory: projectDirname(result.sourceRelativePath),
     fileName: result.sourceFileName
   }));
 }
@@ -4112,8 +4801,13 @@ async function discardSelectedAssets() {
 }
 
 function openBatchDeleteDialog() {
-  const count = selectedAssets().length;
+  const assets = selectedAssets();
+  const count = assets.length;
   if (!count) return;
+  if (assets.some((asset) => asset.managed)) {
+    showToast("受管生成资产只在 E 盘保存一份；请先标记为“丢弃”，暂不物理删除", { tone: "error", duration: 6000 });
+    return;
+  }
   els.batchDeleteTitle.textContent = `删除所选 ${count} 项素材？`;
   els.batchDeleteSummary.textContent = "素材会从当前库移出，并保留 15 分钟供你主动撤销；不会读取或恢复 Windows 回收站里的内容。";
   els.batchDeleteDialog.showModal();
@@ -4132,7 +4826,8 @@ async function confirmBatchDelete() {
         projectId: asset.projectId,
         sourcePath: asset.relPath,
         caseId: asset.caseId,
-        assetId: asset.caseRelPath
+        assetId: asset.caseRelPath,
+        outputId: asset.outputId || ""
       })) })
     });
     els.batchDeleteDialog.close();
@@ -4186,7 +4881,7 @@ async function copyPath(asset) {
 async function reveal(asset) {
   await api("/api/reveal", {
     method: "POST",
-    body: JSON.stringify({ projectId: asset.projectId, path: asset.relPath })
+    body: JSON.stringify({ projectId: asset.projectId, path: asset.relPath, outputId: asset.outputId || "" })
   });
   els.refreshStatus.textContent = "已在文件夹中定位该素材";
 }
@@ -4194,7 +4889,7 @@ async function reveal(asset) {
 async function openFolder(asset) {
   await api("/api/open-folder", {
     method: "POST",
-    body: JSON.stringify({ projectId: asset.projectId, path: asset.relPath })
+    body: JSON.stringify({ projectId: asset.projectId, path: asset.relPath, outputId: asset.outputId || "" })
   });
   els.refreshStatus.textContent = "已打开素材所在文件夹";
 }
@@ -4641,11 +5336,232 @@ async function createThreeDTask() {
   }
 }
 
+function mjNode(tag, className, text = "") {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  node.textContent = text;
+  return node;
+}
+
+function renderMidjourneyCandidates() {
+  const currentNames = new Set(state.midjourney.candidates.map((item) => item.name));
+  for (const name of state.midjourney.selected) if (!currentNames.has(name)) state.midjourney.selected.delete(name);
+  els.midjourneyCandidateGrid.replaceChildren();
+  els.midjourneyCandidateCount.textContent = `${state.midjourney.candidates.length} 张可收录`;
+  els.midjourneySelectedCount.textContent = `${state.midjourney.selected.size} 张已选`;
+  els.importMidjourney.disabled = !state.midjourney.selected.size;
+  if (!state.midjourney.candidates.length) {
+    els.midjourneyCandidateGrid.append(mjNode("div", "midjourney-empty", "下载文件夹里暂时没有可识别的 MJ 图片。普通截图和其他下载不会出现在这里。"));
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  for (const item of state.midjourney.candidates) {
+    const card = mjNode("button", `midjourney-candidate${state.midjourney.selected.has(item.name) ? " is-selected" : ""}`);
+    card.type = "button";
+    card.dataset.name = item.name;
+    card.setAttribute("aria-pressed", String(state.midjourney.selected.has(item.name)));
+    card.title = item.name;
+    const image = document.createElement("img");
+    image.src = item.previewUrl;
+    image.alt = item.label;
+    image.loading = "lazy";
+    image.decoding = "async";
+    const check = mjNode("span", "midjourney-candidate-check", "✓");
+    check.setAttribute("aria-hidden", "true");
+    const copy = mjNode("span", "midjourney-candidate-copy");
+    copy.append(mjNode("strong", "", item.label));
+    const chips = mjNode("span", "midjourney-parameter-chips");
+    if (item.aspect) chips.append(mjNode("span", "", item.aspect));
+    for (const code of item.profiles.slice(0, 3)) chips.append(mjNode("span", "", `P ${code}`));
+    if (item.parameters.stylize || item.parameters.s) chips.append(mjNode("span", "", `S ${item.parameters.stylize || item.parameters.s}`));
+    if (item.parameters.sref) chips.append(mjNode("span", "", `SREF ${item.parameters.sref}`));
+    if (item.parameters.seed) chips.append(mjNode("span", "", `Seed ${item.parameters.seed}`));
+    if (!chips.children.length) chips.append(mjNode("span", "", "参数待补"));
+    copy.append(chips, mjNode("small", "", `${formatSize(item.size)} · ${new Date(item.modifiedAt).toLocaleDateString("zh-CN")}`));
+    card.append(image, check, copy);
+    fragment.append(card);
+  }
+  els.midjourneyCandidateGrid.append(fragment);
+}
+
+function startMidjourneyProfile(profile = {}) {
+  state.midjourney.editingId = profile.id || "";
+  els.midjourneyProfileId.value = profile.id || "";
+  els.midjourneyProfileCode.value = profile.code || "";
+  els.midjourneyProfileName.value = profile.name || "";
+  els.midjourneyProfileRating.value = String(profile.rating || 0);
+  els.midjourneyProfileSource.value = profile.source || "";
+  els.midjourneyProfileTags.value = (profile.tags || []).join("、");
+  els.midjourneyProfileNote.value = profile.note || "";
+  els.midjourneyProfileForm.hidden = false;
+  els.midjourneyProfileCode.focus({ preventScroll: true });
+}
+
+function renderMidjourneyProfiles() {
+  els.midjourneyProfileList.replaceChildren();
+  els.midjourneyProfileCount.textContent = `${state.midjourney.profiles.length} 个收藏`;
+  const savedCodes = new Set(state.midjourney.profiles.map((item) => item.code.toLowerCase()));
+  const items = [
+    ...state.midjourney.profiles.map((item) => ({ ...item, saved: true })),
+    ...state.midjourney.observedProfiles.filter((item) => !savedCodes.has(item.code.toLowerCase())).map((item) => ({ ...item, name: "图片中识别到", saved: false }))
+  ];
+  if (!items.length) {
+    els.midjourneyProfileList.append(mjNode("div", "midjourney-empty", "收录 MJ 图片后会自动识别 --profile；也可以直接收藏常用 P值。"));
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  for (const item of items) {
+    const card = mjNode("article", `midjourney-profile-card${item.saved ? "" : " midjourney-observed"}`);
+    const info = mjNode("div", "");
+    info.append(mjNode("h3", "", item.name || "未命名风格"), mjNode("div", "midjourney-profile-code", `--profile ${item.code}`));
+    if (item.saved && item.rating) info.append(mjNode("small", "", "★".repeat(item.rating)));
+    const actions = mjNode("div", "midjourney-profile-card-actions");
+    const copy = mjNode("button", "", "复制");
+    copy.type = "button";
+    copy.dataset.mjCopy = item.code;
+    actions.append(copy);
+    const edit = mjNode("button", "", item.saved ? "编辑" : "收藏");
+    edit.type = "button";
+    edit.dataset.mjEdit = item.saved ? item.id : `code:${item.code}`;
+    actions.append(edit);
+    if (item.saved) {
+      const remove = mjNode("button", "", "删除");
+      remove.type = "button";
+      remove.dataset.mjDelete = item.id;
+      actions.append(remove);
+    }
+    card.append(info, actions);
+    const details = [item.tags?.length ? item.tags.join(" · ") : "", item.note || "", item.count ? `${item.count} 张图片使用` : ""].filter(Boolean).join(" · ");
+    if (details) card.append(mjNode("p", "midjourney-profile-note", details));
+    fragment.append(card);
+  }
+  els.midjourneyProfileList.append(fragment);
+}
+
+function renderMidjourney() {
+  renderMidjourneyCandidates();
+  renderMidjourneyProfiles();
+}
+
+async function loadMidjourney() {
+  els.midjourneyCandidateCount.textContent = "正在读取";
+  const data = await api("/api/midjourney");
+  state.midjourney = { ...state.midjourney, ...data };
+  renderMidjourney();
+}
+
+async function openMidjourneyWorkspace() {
+  els.midjourneyTargetProject.replaceChildren();
+  for (const project of state.projects.filter((item) => item.exists && item.id !== "ai-reference-library")) {
+    const option = document.createElement("option");
+    option.value = project.id;
+    option.textContent = project.name;
+    els.midjourneyTargetProject.append(option);
+  }
+  const preferred = [state.codexScope === "shared" ? "mj-library" : state.codexBoundProject, state.selectedProject, "pending-review"].find((id) => id !== "ai-reference-library" && state.projects.some((item) => item.id === id && item.exists));
+  if (preferred) els.midjourneyTargetProject.value = preferred;
+  if (!els.midjourneyDialog.open) els.midjourneyDialog.showModal();
+  await loadMidjourney();
+}
+
+async function importSelectedMidjourney() {
+  const names = [...state.midjourney.selected];
+  if (!names.length) return;
+  const projectId = els.midjourneyTargetProject.value;
+  els.importMidjourney.disabled = true;
+  els.importMidjourney.textContent = "归档中…";
+  try {
+    const data = await api("/api/midjourney/import", {
+      method: "POST",
+      body: JSON.stringify({
+        names,
+        projectId,
+        targetDirectory: projectId === state.selectedProject ? state.selectedCase : ""
+      })
+    });
+    state.midjourney.selected.clear();
+    await loadMidjourney();
+    showToast(projectId === "mj-library"
+      ? `已将 ${data.imported.length} 张 MJ 图片归档到「MJ 素材库」，按 P 组合分类；无 P 值的单独收纳`
+      : `已将 ${data.imported.length} 张 MJ 图片移动到「${codexProjectName(projectId)} / ${data.targetRelativePath}」`);
+  } finally {
+    els.importMidjourney.textContent = "移动归档";
+    renderMidjourneyCandidates();
+  }
+}
+
+async function saveMidjourneyProfile(event) {
+  event.preventDefault();
+  await api("/api/midjourney/profiles", {
+    method: "POST",
+    body: JSON.stringify({
+      id: els.midjourneyProfileId.value,
+      code: els.midjourneyProfileCode.value,
+      name: els.midjourneyProfileName.value,
+      rating: els.midjourneyProfileRating.value,
+      source: els.midjourneyProfileSource.value,
+      tags: els.midjourneyProfileTags.value,
+      note: els.midjourneyProfileNote.value
+    })
+  });
+  els.midjourneyProfileForm.hidden = true;
+  await loadMidjourney();
+  showToast("P值已收藏");
+}
+
 function wireFilters() {
+  document.querySelectorAll("[data-open-midjourney]").forEach((button) => {
+    button.addEventListener("click", () => openMidjourneyWorkspace().catch(showError));
+  });
+  els.midjourneyButton?.addEventListener("click", () => openMidjourneyWorkspace().catch(showError));
+  els.refreshMidjourney?.addEventListener("click", () => loadMidjourney().catch(showError));
+  els.importMidjourney?.addEventListener("click", () => importSelectedMidjourney().catch(showError));
+  els.midjourneyCandidateGrid?.addEventListener("click", (event) => {
+    const card = event.target.closest("[data-name]");
+    if (!card) return;
+    if (state.midjourney.selected.has(card.dataset.name)) state.midjourney.selected.delete(card.dataset.name);
+    else state.midjourney.selected.add(card.dataset.name);
+    renderMidjourneyCandidates();
+  });
+  els.newMidjourneyProfile?.addEventListener("click", () => startMidjourneyProfile());
+  els.cancelMidjourneyProfile?.addEventListener("click", () => { els.midjourneyProfileForm.hidden = true; });
+  els.midjourneyProfileForm?.addEventListener("submit", (event) => saveMidjourneyProfile(event).catch(showError));
+  els.midjourneyProfileList?.addEventListener("click", async (event) => {
+    try {
+      const copy = event.target.closest("[data-mj-copy]");
+      if (copy) {
+        await navigator.clipboard.writeText(`--profile ${copy.dataset.mjCopy}`);
+        showToast("已复制 P值参数");
+        return;
+      }
+      const edit = event.target.closest("[data-mj-edit]");
+      if (edit) {
+        if (edit.dataset.mjEdit.startsWith("code:")) startMidjourneyProfile({ code: edit.dataset.mjEdit.slice(5) });
+        else startMidjourneyProfile(state.midjourney.profiles.find((item) => item.id === edit.dataset.mjEdit) || {});
+        return;
+      }
+      const remove = event.target.closest("[data-mj-delete]");
+      if (remove && window.confirm("只删除这条 P值收藏，已经归档的图片不会被删除。继续吗？")) {
+        await api(`/api/midjourney/profiles/${encodeURIComponent(remove.dataset.mjDelete)}`, { method: "DELETE" });
+        await loadMidjourney();
+      }
+    } catch (error) {
+      showError(error);
+    }
+  });
+
   els.categoryFilters.addEventListener("click", (event) => {
     const button = event.target.closest("[data-category]");
     if (!button) return;
     setCategoryFilter(button.dataset.category);
+    render();
+  });
+
+  els.smartGroupFilters?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-smart-group]");
+    if (!button) return;
+    state.smartGroupFilter = button.dataset.smartGroup;
+    els.smartGroupFilters.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button));
     render();
   });
 
@@ -4667,6 +5583,14 @@ function wireFilters() {
 
   els.embeddedCategoryFilter?.addEventListener("change", () => {
     setCategoryFilter(els.embeddedCategoryFilter.value);
+    render();
+  });
+  els.embeddedSmartGroupFilter?.addEventListener("change", () => {
+    state.smartGroupFilter = els.embeddedSmartGroupFilter.value;
+    els.smartGroupFilters?.querySelectorAll("[data-smart-group]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.smartGroup === state.smartGroupFilter);
+    });
+    syncEmbeddedFilterControls();
     render();
   });
   els.embeddedStatusFilter?.addEventListener("change", () => {
@@ -4695,6 +5619,15 @@ function wireFilters() {
       state.query = els.searchInput.value;
       render();
     }, 100);
+  });
+  els.searchInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !els.searchInput.value) return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearTimeout(state.assetSearchTimer);
+    els.searchInput.value = "";
+    state.query = "";
+    render();
   });
 
   els.sortSelect.addEventListener("change", () => {
@@ -4906,6 +5839,12 @@ function wireFilters() {
   });
 
   els.automationButton.addEventListener("click", openAutomationDialog);
+  els.governanceButton?.addEventListener("click", () => openGovernanceDialog().catch(showError));
+  els.refreshGovernance?.addEventListener("click", () => loadGovernanceStatus().catch((error) => {
+    els.governanceMessage.textContent = `刷新失败：${error.message}`;
+  }));
+  els.createGovernanceSnapshot?.addEventListener("click", () => createGovernanceSnapshot().catch(showError));
+  els.clearGovernanceCache?.addEventListener("click", () => clearGovernanceCache().catch(showError));
   els.saveAutomation.addEventListener("click", () => saveAutomationSettings().catch((error) => showAutomationMessage("保存失败", error.message, true)));
   els.previewOrganizer.addEventListener("click", () => runAutomationAction("/api/automation/organizer/preview", "归档预览"));
   els.runOrganizer.addEventListener("click", () => runAutomationAction("/api/automation/organizer/run", "立即归档"));
@@ -4931,7 +5870,7 @@ function wireFilters() {
       });
       state.automation = data.automation;
       renderAutomationForm();
-      showAutomationMessage("当前项目已切换", `后续通用文件将自动进入“${data.profile.name}”。`);
+      showAutomationMessage("当前项目已切换", `仅旧版全量下载整理会使用“${data.profile.name}”；生成任务仍按当前任务自动匹配。`);
     } catch (error) {
       showAutomationMessage("切换失败", error.message, true);
     }
@@ -4990,6 +5929,12 @@ function configureLiveEvents() {
   source.addEventListener("three-d-change", async () => {
     if (els.threeDWorkbenchDialog.open) await loadThreeDWorkbench();
     await requestBackgroundRefresh({ reloadCases: true });
+  });
+  source.addEventListener("midjourney-change", async () => {
+    if (els.midjourneyDialog?.open) await loadMidjourney();
+  });
+  source.addEventListener("workspace-governance-change", async () => {
+    if (els.governanceDialog?.open) await loadGovernanceStatus();
   });
   source.addEventListener("connected", () => {
     els.refreshStatus.textContent = "实时监听已连接";

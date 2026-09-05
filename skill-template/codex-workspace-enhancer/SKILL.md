@@ -44,7 +44,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-bundled.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1
 ```
 
-The installer only owns `%LOCALAPPDATA%\Programs\Codex Sidebar Enhancer`, `%LOCALAPPDATA%\CodexSidebarEnhancer`, and known runtime files under `%LOCALAPPDATA%\AssetBrowser`. It preserves `asset-browser.config.json`, ledgers, and all project folders.
+The installer only owns `%LOCALAPPDATA%\Programs\Codex Sidebar Enhancer`, `%LOCALAPPDATA%\CodexSidebarEnhancer`, with backend state in `%LOCALAPPDATA%\CodexSidebarEnhancer\asset-browser`. It preserves `asset-browser.config.json`, ledgers, and all project folders.
 
 ## Adapt instead of forking the method
 
@@ -57,4 +57,4 @@ Keep the stable workflow and acceptance rules unchanged. Implement platform diff
 - Exercise task A -> task B with Asset Console open.
 - Exercise rapid folder A -> B switching with reversed response order.
 - Confirm no automatic message send and no deletion outside owned paths.
-- For a deliverable change, request a fresh independent cold review after tests pass.
+- Use independent review only for high-impact, security, data-loss or uncertain critical changes.

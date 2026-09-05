@@ -11,6 +11,9 @@ import { ExactDuplicateCleaner, normalizeDeduplication } from "./duplicate-clean
 import { PromptLibrary } from "./prompt-library.js";
 import { ThreeDWorkbench } from "./three-d-workbench.js";
 import { createProjectFolder, renameProjectFolder } from "./folder-operations.js";
+import { WorkspaceGovernance } from "./workspace-governance.js";
+import { MidjourneyWorkspace } from "./midjourney-workspace.js";
+import { resolveCodexWorkspace, collectWorkspaceFiles, workspaceFolders, fileType, previewFile } from "./codex-workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicRoot = path.join(__dirname, "public");
@@ -30,6 +33,9 @@ const audioSkillRoot = path.resolve(process.env.SCORE_MIX_SKILL_ROOT || path.joi
 const aceStepLauncher = process.env.ACESTEP_LAUNCHER ? path.resolve(process.env.ACESTEP_LAUNCHER) : "";
 const port = Number(process.env.PORT || 5177);
 const apiTokenPath = path.resolve(process.env.ASSET_BROWSER_TOKEN_FILE || path.join(__dirname, ".api-token"));
+const governanceRoot = path.resolve(process.env.CODEX_WORKSPACE_GOVERNANCE || path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "CodexWorkspaceGovernance"));
+const midjourneyRegistryPath = path.resolve(process.env.MIDJOURNEY_WORKSPACE_REGISTRY || path.join(__dirname, ".midjourney-workspace.json"));
+const midjourneyDownloadsPath = path.resolve(process.env.MIDJOURNEY_DOWNLOADS || path.join(os.homedir(), "Downloads"));
 const apiToken = String(process.env.ASSET_BROWSER_API_TOKEN || readFileSync(apiTokenPath, "utf8")).trim();
 if (apiToken.length < 32) throw new Error(`AssetBrowser API token is missing or invalid: ${apiTokenPath}`);
 
@@ -47,8 +53,50 @@ const generationPipeline = new GenerationPipeline({
 const duplicateCleaner = new ExactDuplicateCleaner({ ledgerPath: duplicateLedgerPath });
 const promptLibrary = new PromptLibrary({ root: promptLibraryRoot });
 const threeDWorkbench = new ThreeDWorkbench({ registryPath: threeDRegistryPath, skillRoot: img2threejsSkillRoot });
+const midjourneyWorkspace = new MidjourneyWorkspace({ downloadsPath: midjourneyDownloadsPath, registryPath: midjourneyRegistryPath });
+const workspaceGovernance = new WorkspaceGovernance({
+  root: governanceRoot,
+  stateFiles: [
+    { id: "asset-config", label: "资产控制台配置", component: "asset-console", path: configPath },
+    { id: "download-ledger", label: "生成下载记录", component: "generation", path: ledgerPath },
+    { id: "generation-tickets", label: "生成任务记录", component: "generation", path: generationRegistryPath },
+    { id: "thread-bindings", label: "任务与项目绑定", component: "task-context", path: generationBindingsPath },
+    { id: "duplicate-ledger", label: "重复项处理记录", component: "asset-console", path: duplicateLedgerPath },
+    { id: "rhythm-tracks", label: "节奏控制记录", component: "workbench", path: rhythmControlRegistryPath },
+    { id: "three-d-tasks", label: "3D 工作台记录", component: "workbench", path: threeDRegistryPath },
+    { id: "midjourney-workspace", label: "Midjourney 工作区记录", component: "workbench", path: midjourneyRegistryPath }
+  ],
+  moduleFiles: [
+    { id: "asset-server", label: "资产服务", component: "backend", path: path.join(__dirname, "server.js") },
+    { id: "workspace-governance", label: "存储与恢复底座", component: "backend", path: path.join(__dirname, "workspace-governance.js") },
+    { id: "download-automation", label: "下载归属与整理", component: "backend", path: path.join(__dirname, "download-automation.js") },
+    { id: "generation-pipeline", label: "生成资产流水线", component: "backend", path: path.join(__dirname, "generation-pipeline.js") },
+    { id: "midjourney-workspace", label: "Midjourney 工作区", component: "backend", path: path.join(__dirname, "midjourney-workspace.js") },
+    { id: "asset-console-ui", label: "资产控制台界面", component: "frontend", path: path.join(publicRoot, "app.js") },
+    { id: "asset-console-layout", label: "资产控制台结构", component: "frontend", path: path.join(publicRoot, "index.html") },
+    { id: "asset-console-style", label: "资产控制台样式", component: "frontend", path: path.join(publicRoot, "ui-v3.css") }
+  ]
+});
 let automationBusy = false;
 let configUpdateQueue = Promise.resolve();
+let mutationSafetyPromise = null;
+let lastMutationSafetyAt = 0;
+
+async function ensureMutationSafetyPoint() {
+  const now = Date.now();
+  if (now - lastMutationSafetyAt < 10 * 60 * 1000) return;
+  if (mutationSafetyPromise) return mutationSafetyPromise;
+  mutationSafetyPromise = workspaceGovernance.createSnapshot({
+    label: `自动安全点 ${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+    reason: "pre-mutation",
+    includeModules: false
+  }).then(() => {
+    lastMutationSafetyAt = Date.now();
+  }).finally(() => {
+    mutationSafetyPromise = null;
+  });
+  return mutationSafetyPromise;
+}
 
 function sendJson(res, data, status = 200) {
   const body = JSON.stringify(data, null, 2);
@@ -62,6 +110,17 @@ function sendJson(res, data, status = 200) {
 function sendText(res, text, status = 200) {
   res.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
   res.end(text);
+}
+
+function mutationSummary(body) {
+  if (!body || typeof body !== "object") return {};
+  const summary = {};
+  for (const key of ["projectId", "sourceProjectId", "targetProjectId", "caseId", "assetId", "sourcePath", "targetDirectory", "path", "parentPath", "name", "threadId", "profileId", "ticketId"]) {
+    if (typeof body[key] === "string" && body[key]) summary[key] = body[key].slice(0, 500);
+  }
+  if (Array.isArray(body.items)) summary.itemCount = Math.min(body.items.length, 10000);
+  if (Array.isArray(body.projectIds)) summary.projectCount = Math.min(body.projectIds.length, 10000);
+  return summary;
 }
 
 function hasValidApiToken(req) {
@@ -82,9 +141,17 @@ function isProtectedLocalRoute(pathname) {
 
 function contentType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
-  if (ext === ".html") return "text/html; charset=utf-8";
+  if (ext === ".pdf") return "application/pdf";
+  if (ext === ".svg") return "image/svg+xml";
+  if (ext === ".avif") return "image/avif";
+  if (ext === ".html" || ext === ".htm") return "text/html; charset=utf-8";
   if (ext === ".css") return "text/css; charset=utf-8";
-  if (ext === ".js") return "text/javascript; charset=utf-8";
+  if ([".js", ".mjs", ".cjs"].includes(ext)) return "text/javascript; charset=utf-8";
+  if (ext === ".woff") return "font/woff";
+  if (ext === ".woff2") return "font/woff2";
+  if (ext === ".ttf") return "font/ttf";
+  if (ext === ".otf") return "font/otf";
+  if (ext === ".wasm") return "application/wasm";
   if (ext === ".json") return "application/json; charset=utf-8";
   if (ext === ".png") return "image/png";
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
@@ -114,22 +181,33 @@ function safeResolve(root, requestedPath) {
   return absolute;
 }
 
+function isWithin(root, candidate) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
 function safeResolvePublic(requestedPath) {
   const withoutLeadingSlash = String(requestedPath || "").replace(/^\/+/, "");
   return safeResolve(publicRoot, withoutLeadingSlash || "index.html");
 }
 
+async function generatedRootFor(configuredPath) {
+  return path.resolve(configuredPath || path.join(os.homedir(), "Documents", "Codex Assets", "generated"));
+}
+
 async function loadConfig() {
   try {
     const config = JSON.parse((await fs.readFile(configPath, "utf8")).replace(/^\uFEFF/, ""));
+    const projects = (config.projects || []).map((project) => ({
+      id: project.id,
+      name: project.name || project.id,
+      path: path.resolve(project.path),
+      scanRoots: project.scanRoots?.length ? project.scanRoots : ["."]
+    })).filter((project) => project.id && project.path);
     return {
       enabled: config.enabled !== false,
-      projects: (config.projects || []).map((project) => ({
-        id: project.id,
-        name: project.name || project.id,
-        path: path.resolve(project.path),
-        scanRoots: project.scanRoots?.length ? project.scanRoots : ["."]
-      })).filter((project) => project.id && project.path),
+      projects,
+      storage: { generatedRoot: await generatedRootFor(config.storage?.generatedRoot, projects) },
       automation: normalizeAutomation(config.automation),
       deduplication: normalizeDeduplication(config.deduplication, { defaultQuarantinePath: duplicateQuarantinePath })
     };
@@ -137,6 +215,7 @@ async function loadConfig() {
     return {
       enabled: true,
       projects: [],
+      storage: { generatedRoot: await generatedRootFor("", []) },
       automation: normalizeAutomation(),
       deduplication: normalizeDeduplication({}, { defaultQuarantinePath: duplicateQuarantinePath })
     };
@@ -152,6 +231,7 @@ async function saveConfig(config) {
       path: path.resolve(project.path),
       scanRoots: project.scanRoots?.length ? project.scanRoots : ["."]
     })),
+    storage: { generatedRoot: await generatedRootFor(config.storage?.generatedRoot, config.projects || []) },
     automation: normalizeAutomation(config.automation),
     deduplication: normalizeDeduplication(config.deduplication, { defaultQuarantinePath: duplicateQuarantinePath })
   };
@@ -188,9 +268,19 @@ function slugify(input) {
   return base || `project-${Date.now()}`;
 }
 
-async function getProject(projectId) {
+async function codexWorkspace(threadId) {
   const config = await loadConfig();
-  const project = config.projects.find((item) => item.id === projectId) || config.projects[0];
+  return resolveCodexWorkspace(threadId, { projects: config.projects, bindings: await generationPipeline.listBindings() });
+}
+
+async function getProject(projectId) {
+  if (String(projectId || "").startsWith("codex-thread:")) {
+    const workspace = await codexWorkspace(projectId.slice("codex-thread:".length));
+    if (!workspace.project || workspace.project.id !== projectId) throw new Error("当前任务项目已改变，请刷新资产列表");
+    return workspace.project;
+  }
+  const config = await loadConfig();
+  const project = config.projects.find((item) => item.id === projectId) || (!projectId ? config.projects[0] : null);
   if (!project) throw new Error("No configured project folders");
   return project;
 }
@@ -315,6 +405,42 @@ function assetKind(filePath, caseDir) {
   return "other";
 }
 
+async function managedOutputs(projectId = "") {
+  const [generated, midjourney] = await Promise.all([
+    generationPipeline.listOutputs({ projectId }),
+    midjourneyWorkspace.listOutputs({ projectId })
+  ]);
+  return [...generated, ...midjourney].filter((output) => output.managed && output.outputId && output.storePath);
+}
+
+async function findManagedOutput({ outputId = "", projectId = "", relativePath = "" } = {}) {
+  const outputs = await managedOutputs(projectId);
+  const normalized = path.normalize(String(relativePath || "")).toLowerCase();
+  return outputs.find((output) => outputId && output.outputId === outputId)
+    || outputs.find((output) => normalized && output.projectId === projectId && path.normalize(output.relativePath || "").toLowerCase() === normalized)
+    || null;
+}
+
+function managedClassification(output) {
+  const smartGroup = output.projectId === "pending-review" ? "review" : "official";
+  const category = output.kind === "audio"
+    ? "audio"
+    : output.kind === "video" ? "videoResult" : "generatedAsset";
+  return {
+    smartGroup,
+    category,
+    autoTags: [output.generator || "generation", "managed"].filter(Boolean),
+    classification: {
+      group: smartGroup,
+      source: "registry",
+      confidence: 1,
+      reason: output.projectId === "pending-review"
+        ? "生成任务已登记，等待人工确认归属"
+        : output.generator === "midjourney" ? "Midjourney 精确导入登记" : "生成任务输出登记"
+    }
+  };
+}
+
 function inferVersion(relPath) {
   const match = relPath.match(/(?:^|[_-])v(\d+)(?:[_\-.]|$)/i);
   if (match) return `v${match[1]}`;
@@ -349,32 +475,8 @@ async function listProjects() {
 }
 
 async function listProjectFolders(projectId) {
-  const project = await getProjectStrict(projectId);
-  const folders = [{ path: "", name: "项目根目录", depth: 0 }];
-  const limit = 1500;
-  const maxDepth = 8;
-
-  async function collect(directory, relativePath = "", depth = 0) {
-    if (depth >= maxDepth || folders.length >= limit) return;
-    let entries;
-    try {
-      entries = await fs.readdir(directory, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    const directories = entries
-      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".") && entry.name !== "node_modules")
-      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN", { numeric: true }));
-    for (const entry of directories) {
-      if (folders.length >= limit) return;
-      const childRelative = relativePath ? path.join(relativePath, entry.name) : entry.name;
-      folders.push({ path: childRelative, name: entry.name, depth: depth + 1 });
-      await collect(path.join(directory, entry.name), childRelative, depth + 1);
-    }
-  }
-
-  await collect(project.path);
-  return { project: { id: project.id, name: project.name, path: project.path }, folders, truncated: folders.length >= limit };
+  const project = await getProject(projectId);
+  return workspaceFolders(project);
 }
 
 async function addProjectFolder({ projectId, parentPath = "", name }) {
@@ -693,6 +795,75 @@ async function moveAsset(body) {
   const config = await loadConfig();
   const sourceProject = await getProjectStrict(body.sourceProjectId);
   const targetProject = await getProjectStrict(body.targetProjectId);
+  const managed = await findManagedOutput({
+    outputId: String(body.outputId || body.sourceAssetId || ""),
+    projectId: sourceProject.id,
+    relativePath: body.sourcePath
+  });
+  if (managed) {
+    const targetDirectoryPath = safeResolveProject(targetProject, body.targetDirectory || "");
+    const targetDirectory = path.relative(targetProject.path, targetDirectoryPath);
+    const sourceExt = path.extname(managed.fileName || managed.relativePath || managed.storePath);
+    const requestedName = String(body.fileName || managed.fileName || path.basename(managed.relativePath)).trim();
+    const requestedStem = cleanFileStem(path.basename(requestedName, path.extname(requestedName)), path.basename(managed.fileName || "asset", sourceExt));
+    const desiredRelativePath = path.join(targetDirectory, `${requestedStem}${sourceExt}`);
+    const occupied = new Set((await managedOutputs(targetProject.id)).filter((item) => item.outputId !== managed.outputId)
+      .map((item) => path.normalize(item.relativePath).toLowerCase()));
+    let targetRelativePath = desiredRelativePath;
+    for (let index = 2; occupied.has(path.normalize(targetRelativePath).toLowerCase()) || await exists(safeResolveProject(targetProject, targetRelativePath)); index += 1) {
+      targetRelativePath = path.join(targetDirectory, `${requestedStem}-${String(index).padStart(2, "0")}${sourceExt}`);
+    }
+    if (sourceProject.id === targetProject.id && path.normalize(targetRelativePath).toLowerCase() === path.normalize(managed.relativePath).toLowerCase()) {
+      throw new Error("素材已经在这个逻辑位置，请选择其他文件夹或修改文件名");
+    }
+    const targetProfile = profileForTarget(config, targetProject, targetRelativePath);
+    const moved = managed.generator === "midjourney"
+      ? await midjourneyWorkspace.relocateOutput(managed.outputId, {
+        projectId: targetProject.id,
+        projectName: targetProject.name,
+        relativePath: targetRelativePath
+      })
+      : await generationPipeline.relocateArchivedOutput(managed.ticketId, {
+        projectId: targetProject.id,
+        profileId: targetProfile?.id || "",
+        outputId: managed.outputId,
+        newRelativePath: targetRelativePath
+      }, config);
+    let taskBinding = null;
+    let routingCorrectionError = "";
+    if (managed.threadId && !["pending-review", "misc-library", "ai-reference-library", "reference-library"].includes(targetProject.id)) {
+      try {
+        taskBinding = await generationPipeline.bindThread({
+          threadId: managed.threadId,
+          projectId: targetProject.id,
+          profileId: targetProfile?.id || "",
+          source: "manual-asset-move",
+          sourceTask: managed.sourceTask
+        }, config);
+      } catch (error) {
+        routingCorrectionError = String(error.message || error);
+      }
+    }
+    return {
+      sourceProjectId: sourceProject.id,
+      sourcePath: managed.relativePath,
+      sourceRelativePath: managed.relativePath,
+      sourceFileName: managed.fileName,
+      targetProjectId: targetProject.id,
+      targetProjectName: targetProject.name,
+      destinationPath: targetRelativePath,
+      targetRelativePath,
+      fileName: path.basename(targetRelativePath),
+      outputId: managed.outputId,
+      managed: true,
+      movedFile: false,
+      movedSidecars: [],
+      reviewMeta: managed.review ? { caseId: path.dirname(targetRelativePath) || ".", assetId: managed.outputId } : null,
+      taskBinding,
+      ticketRelocation: managed.ticketId ? { ticketId: managed.ticketId, movedAt: moved.movedAt || new Date().toISOString() } : null,
+      routingCorrectionError
+    };
+  }
   const sourcePath = safeResolveProject(sourceProject, body.sourcePath);
   const sourceStats = await fs.lstat(sourcePath);
   if (!sourceStats.isFile() || sourceStats.isSymbolicLink()) throw new Error("只能移动普通素材文件");
@@ -831,6 +1002,23 @@ async function batchMoveAssets(body) {
 
 async function markAsset(body) {
   const project = await getProjectStrict(body.projectId);
+  const managed = await findManagedOutput({
+    outputId: String(body.outputId || body.assetId || ""),
+    projectId: project.id,
+    relativePath: body.sourcePath || body.path || ""
+  });
+  if (managed) {
+    const review = {
+      userStatus: body.userStatus || "",
+      notes: body.notes || "",
+      favorite: Boolean(body.favorite),
+      tags: Array.isArray(body.tags) ? body.tags : []
+    };
+    const result = managed.generator === "midjourney"
+      ? await midjourneyWorkspace.updateOutputReview(managed.outputId, review)
+      : await generationPipeline.updateOutputReview(managed.outputId, review);
+    return { projectId: project.id, caseId: body.caseId, assetId: managed.outputId, previous: result.previous, meta: result.output.review };
+  }
   const caseDir = safeResolveProject(project, body.caseId);
   const assetPath = safeResolve(caseDir, body.assetId);
   const relToCase = path.relative(caseDir, assetPath);
@@ -869,6 +1057,14 @@ function scheduleTrashPurge(tokenDirectory, delayMs = 15 * 60 * 1000) {
 
 async function trashAssets(body) {
   if (!Array.isArray(body.items) || !body.items.length) throw new Error("没有可删除的素材");
+  for (const item of body.items.slice(0, 200)) {
+    const managed = await findManagedOutput({
+      outputId: item.outputId,
+      projectId: item.projectId,
+      relativePath: item.sourcePath
+    });
+    if (managed) throw new Error("受管生成资产暂不支持物理删除；请先标记为“丢弃”");
+  }
   const token = randomUUID();
   const tokenDirectory = safeResolve(actionTrashRoot, token);
   const storedItems = [];
@@ -997,39 +1193,42 @@ async function appendCaseDirectories({ project, scanRoot, rootDir, currentDir = 
 
 async function listCases(projectId) {
   const project = await getProject(projectId);
-  const cases = [];
-  for (const scanRoot of project.scanRoots) {
-    const rootDir = safeResolveProject(project, scanRoot);
-    if (!await exists(rootDir)) continue;
-    const rootStats = await fs.stat(rootDir);
-    if (await directoryHasMedia(rootDir)) {
-      const rootRelPath = path.relative(project.path, rootDir) || ".";
-      cases.push({
-        id: rootRelPath,
-        projectId: project.id,
-        name: path.basename(rootDir),
-        relPath: rootRelPath,
-        scanRoot,
-        mediaCount: await countMediaFiles(rootDir),
-        mtimeMs: rootStats.mtimeMs
-      });
+  const { folders } = await workspaceFolders(project);
+  const cases = folders.map(folder => ({ id: folder.path || ".", projectId: project.id, name: folder.name,
+    relPath: folder.path || ".", scanRoot: ".", mediaCount: 0, mtimeMs: 0 }));
+  const byPath = new Map(cases.map(item => [path.normalize(item.id).toLowerCase(), item]));
+  for (const file of await collectWorkspaceFiles(project)) {
+    const stats = await fs.stat(file);
+    let directory = path.dirname(path.relative(project.path, file));
+    while (true) {
+      const item = byPath.get(path.normalize(directory).toLowerCase());
+      if (item) { item.mediaCount += 1; item.mtimeMs = Math.max(item.mtimeMs, stats.mtimeMs); }
+      if (directory === ".") break;
+      directory = path.dirname(directory);
     }
-    const maxDepth = ["ai-reference-library", "reference-library"].includes(project.id) ? 5 : 1;
-    await appendCaseDirectories({ project, scanRoot, rootDir, maxDepth, cases });
   }
-  return cases.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  for (const output of await managedOutputs(project.id)) {
+    const stats = await fs.stat(output.storePath).catch(() => null);
+    if (!stats) continue;
+    const id = output.caseId || path.dirname(output.relativePath) || ".";
+    const existing = byPath.get(path.normalize(id).toLowerCase());
+    if (existing) { existing.mediaCount += 1; existing.mtimeMs = Math.max(existing.mtimeMs, stats.mtimeMs); }
+    else { const item = { id, projectId: project.id, name: path.basename(id), relPath: id, scanRoot: "@managed", mediaCount: 1, mtimeMs: stats.mtimeMs, managed: true }; cases.push(item); byPath.set(path.normalize(id).toLowerCase(), item); }
+  }
+  return cases;
 }
 
 async function listAssets(projectId, caseId) {
   const project = await getProject(projectId);
-  const caseDir = safeResolveProject(project, caseId);
-  if (!await exists(caseDir)) throw new Error(`Case not found: ${caseId}`);
-  const files = await walk(caseDir);
-  const meta = await readMeta(caseDir);
+  const all = caseId === "__all__";
+  const caseDir = all ? project.path : safeResolveProject(project, caseId);
+  const caseExists = await exists(caseDir);
+  const files = await collectWorkspaceFiles(project, caseId);
+  const meta = caseExists ? await readMeta(caseDir) : {};
   const assets = [];
   for (const filePath of files) {
     const ext = path.extname(filePath).toLowerCase();
-    if (!imageExts.has(ext) && !videoExts.has(ext) && !audioExts.has(ext)) continue;
+    if (!fileType(filePath)) continue;
     const stats = await fs.stat(filePath);
     const relToCase = path.relative(caseDir, filePath);
     const relToProject = path.relative(project.path, filePath);
@@ -1041,6 +1240,11 @@ async function listAssets(projectId, caseId) {
       projectName: project.name,
       caseId,
       kind,
+      type: fileType(filePath),
+      absolutePath: filePath,
+      htmlUrl: fileType(filePath) === "html" ? `/api/project-file/${encodeURIComponent(project.id)}/${relToProject.split(path.sep).map(encodeURIComponent).join("/")}` : "",
+      readOnly: project.readOnly === true,
+      previewUrl: `/api/preview?project=${encodeURIComponent(project.id)}&path=${encodeURIComponent(relToProject)}`,
       version: inferVersion(relToCase),
       name: path.basename(filePath),
       relPath: relToProject,
@@ -1058,26 +1262,90 @@ async function listAssets(projectId, caseId) {
       tags: stored.tags || []
     });
   }
-  return assets.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  for (const output of await managedOutputs(project.id)) {
+    const outputCaseId = output.caseId || path.dirname(output.relativePath) || ".";
+    if (!all && path.normalize(outputCaseId).toLowerCase() !== path.normalize(caseId).toLowerCase()) continue;
+    let stats;
+    try {
+      stats = await fs.stat(output.storePath);
+    } catch {
+      continue;
+    }
+    const stored = output.review || {};
+    const kind = output.kind === "video" ? "video" : output.kind === "audio" ? "audio" : "image";
+    assets.push({
+      id: output.outputId,
+      outputId: output.outputId,
+      managed: true,
+      projectId: project.id,
+      projectName: project.name,
+      caseId,
+      kind,
+      type: fileType(output.storePath) || kind,
+      absolutePath: output.storePath,
+      ticketId: output.ticketId || "",
+      sourceTask: output.sourceTask || "",
+      promptPath: output.promptPath || "",
+      previewUrl: `/api/preview?output=${encodeURIComponent(output.outputId)}`,
+      version: inferVersion(output.relativePath || ""),
+      name: output.fileName || path.basename(output.relativePath),
+      relPath: output.relativePath,
+      resolvedPath: output.storePath,
+      caseRelPath: output.outputId,
+      dir: path.dirname(output.relativePath),
+      mediaUrl: `/media?output=${encodeURIComponent(output.outputId)}`,
+      downloadUrl: `/download?output=${encodeURIComponent(output.outputId)}`,
+      size: stats.size,
+      mtimeMs: stats.mtimeMs,
+      mtime: new Date(stats.mtimeMs).toISOString(),
+      initialStatus: initialStatus(output.relativePath || ""),
+      userStatus: stored.userStatus || "",
+      notes: stored.notes || "",
+      favorite: Boolean(stored.favorite),
+      tags: stored.tags || [],
+      ...managedClassification(output)
+    });
+  }
+  const unique = new Map();
+  for (const asset of assets) unique.set(path.normalize(asset.absolutePath).toLowerCase(), asset);
+  return [...unique.values()].sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
-async function serveFile(req, res, filePath, asDownload = false) {
+async function serveFile(req, res, filePath, asDownload = false, projectResource = "", trustedUi = false) {
   const stats = await fs.stat(filePath);
   const headers = {
     "content-type": contentType(filePath),
     "accept-ranges": "bytes",
-    "cache-control": "no-store"
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff"
   };
+  if (projectResource) headers["access-control-allow-origin"] = "*";
+  if (!trustedUi && (fileType(filePath) === "html" || path.extname(filePath).toLowerCase() === ".svg")) {
+    const resources = projectResource ? ["https://web-sandbox.oaiusercontent.com", `http://127.0.0.1:${port}`, `http://localhost:${port}`].map(origin => `${origin}${projectResource}`).join(" ") : "";
+    headers["content-security-policy"] = projectResource
+      ? `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' ${resources}; style-src 'unsafe-inline' ${resources}; img-src data: blob: ${resources}; media-src blob: ${resources}; font-src data: ${resources}; connect-src ${resources}; base-uri 'none'; form-action 'none'; object-src 'none'`
+      : "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'";
+  }
   if (asDownload) {
     headers["content-disposition"] = `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(filePath))}`;
   }
 
   const range = req.headers.range;
   if (range && !asDownload) {
-    const match = range.match(/bytes=(\d*)-(\d*)/);
+    const match = /^bytes=(\d*)-(\d*)$/i.exec(String(range).trim());
     if (match) {
-      const start = match[1] ? Number(match[1]) : 0;
-      const end = match[2] ? Number(match[2]) : stats.size - 1;
+      const isSuffix = !match[1] && Boolean(match[2]);
+      const suffixLength = isSuffix ? Number(match[2]) : 0;
+      const start = isSuffix ? Math.max(0, stats.size - suffixLength) : Number(match[1]);
+      const requestedEnd = isSuffix ? stats.size - 1 : match[2] ? Number(match[2]) : stats.size - 1;
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(requestedEnd)
+        || start < 0 || start >= stats.size || requestedEnd < start
+        || (!match[1] && !match[2]) || (isSuffix && suffixLength <= 0)) {
+        res.writeHead(416, { ...headers, "content-range": `bytes */${stats.size}`, "content-length": 0 });
+        res.end();
+        return;
+      }
+      const end = Math.min(requestedEnd, stats.size - 1);
       res.writeHead(206, {
         ...headers,
         "content-range": `bytes ${start}-${end}/${stats.size}`,
@@ -1086,6 +1354,9 @@ async function serveFile(req, res, filePath, asDownload = false) {
       createReadStream(filePath, { start, end }).pipe(res);
       return;
     }
+    res.writeHead(416, { ...headers, "content-range": `bytes */${stats.size}`, "content-length": 0 });
+    res.end();
+    return;
   }
 
   res.writeHead(200, { ...headers, "content-length": stats.size });
@@ -1095,8 +1366,13 @@ async function serveFile(req, res, filePath, asDownload = false) {
 async function readRequestBody(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
-  if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (!chunks.length) {
+    req.workspaceMutationSummary = {};
+    return {};
+  }
+  const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  req.workspaceMutationSummary = mutationSummary(body);
+  return body;
 }
 
 function openFinder(targetPath, reveal = true) {
@@ -1121,6 +1397,19 @@ function localDateStamp(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function midjourneyTargetDirectory(project, requestedPath = "") {
+  if (project.id === "mj-library") return ".";
+  const date = localDateStamp();
+  const requested = String(requestedPath || "").trim().replace(/[\\/]+$/u, "");
+  if (["daily-practice", "pending-review"].includes(project.id)) {
+    const dated = requested.match(/(?:^|[\\/])(\d{4}-\d{2}-\d{2})(?:$|[\\/])/u)?.[1]
+      || (/^\d{4}-\d{2}-\d{2}$/u.test(requested) ? requested : date);
+    return path.join(dated, "图片", "Midjourney");
+  }
+
+  return requested ? path.join(requested, "Midjourney") : path.join("Midjourney", date);
 }
 
 async function readRhythmControlRegistry() {
@@ -1455,6 +1744,21 @@ function closeProjectWatchers(projectPath) {
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
+    const mutationStartedAt = Date.now();
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method || "")
+        && url.pathname.startsWith("/api/")
+        && !url.pathname.startsWith("/api/workspace-governance/")) {
+      res.once("finish", () => {
+        if (res.statusCode >= 400) return;
+        void workspaceGovernance.record("workspace.mutation", {
+          method: req.method,
+          route: url.pathname,
+          status: res.statusCode,
+          durationMs: Date.now() - mutationStartedAt,
+          ...(req.workspaceMutationSummary || {})
+        }).catch((error) => console.warn("Workspace journal:", error.message));
+      });
+    }
 
     if (req.method === "OPTIONS") {
       const origin = String(req.headers.origin || "");
@@ -1474,6 +1778,66 @@ const server = createServer(async (req, res) => {
 
     if (isProtectedLocalRoute(url.pathname) && (!isAllowedLocalOrigin(req) || !hasValidApiToken(req))) {
       sendJson(res, { error: "Local API authentication failed" }, 403);
+      return;
+    }
+
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method || "")
+        && url.pathname.startsWith("/api/")
+        && !url.pathname.startsWith("/api/workspace-governance/")) {
+      await ensureMutationSafetyPoint();
+    }
+
+    if (url.pathname === "/api/workspace-governance/status" && req.method === "GET") {
+      const config = await loadConfig();
+      sendJson(res, await workspaceGovernance.status({
+        archives: config.projects.map((project) => ({ id: project.id, label: project.name, path: project.path }))
+      }));
+      return;
+    }
+
+    if (url.pathname === "/api/workspace-governance/history" && req.method === "GET") {
+      sendJson(res, { history: await workspaceGovernance.recentHistory(url.searchParams.get("limit") || 50) });
+      return;
+    }
+
+    if (url.pathname === "/api/workspace-governance/snapshots" && req.method === "POST") {
+      const body = await readRequestBody(req);
+      const snapshot = await workspaceGovernance.createSnapshot({
+        label: body.label || "手动恢复点",
+        reason: body.reason || "manual",
+        includeModules: body.includeModules === true
+      });
+      sendJson(res, { ok: true, snapshot });
+      return;
+    }
+
+    if (url.pathname === "/api/workspace-governance/restore" && req.method === "POST") {
+      const body = await readRequestBody(req);
+      if (body.confirm !== true) throw new Error("恢复活动数据前需要明确确认");
+      const result = await workspaceGovernance.restoreSnapshot(String(body.snapshotId || ""), { components: ["state"] });
+      notifyClients("workspace-governance-change");
+      sendJson(res, { ok: true, result });
+      return;
+    }
+
+    if (url.pathname === "/api/workspace-governance/modules/restore" && req.method === "POST") {
+      const body = await readRequestBody(req);
+      if (body.confirm !== true) throw new Error("回滚工作台模块前需要明确确认");
+      const components = Array.isArray(body.components) ? body.components : [body.component];
+      const result = await workspaceGovernance.restoreModules(String(body.snapshotId || ""), { components });
+      notifyClients("workspace-governance-change");
+      sendJson(res, { ok: true, result });
+      if (result.restartRequired) {
+        setTimeout(() => server.close(() => process.exit(0)), 350).unref();
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/workspace-governance/cache/clear" && req.method === "POST") {
+      const body = await readRequestBody(req);
+      if (body.confirm !== true) throw new Error("清理工作台缓存前需要明确确认");
+      const result = await workspaceGovernance.clearCaches();
+      sendJson(res, { ok: true, result });
       return;
     }
 
@@ -1574,10 +1938,77 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (url.pathname === "/api/midjourney" && req.method === "GET") {
+      sendJson(res, await midjourneyWorkspace.summary());
+      return;
+    }
+
+    if (url.pathname === "/api/midjourney/preview" && req.method === "GET") {
+      const { source } = midjourneyWorkspace.sourcePath(url.searchParams.get("name") || "");
+      await serveFile(req, res, source);
+      return;
+    }
+
+    if (url.pathname === "/api/midjourney/import" && req.method === "POST") {
+      const body = await readRequestBody(req);
+      const projectId = String(body.projectId || "pending-review");
+      const project = await getProjectStrict(projectId);
+      if (!await exists(project.path)) throw new Error(`项目文件夹不存在：${project.name}`);
+      const targetRelativePath = midjourneyTargetDirectory(project, body.targetDirectory);
+      const imported = await midjourneyWorkspace.importFiles({
+        names: body.names,
+        projectId: project.id,
+        projectName: project.name,
+        generatedRoot: (await loadConfig()).storage.generatedRoot,
+        targetRelativePath
+      });
+      notifyClients("asset-change");
+      notifyClients("midjourney-change");
+      sendJson(res, { ok: true, imported, targetRelativePath });
+      return;
+    }
+
+    if (url.pathname === "/api/midjourney/profiles" && req.method === "POST") {
+      const profile = await midjourneyWorkspace.saveProfile(await readRequestBody(req));
+      notifyClients("midjourney-change");
+      sendJson(res, { ok: true, profile });
+      return;
+    }
+
+    const midjourneyProfileMatch = url.pathname.match(/^\/api\/midjourney\/profiles\/([^/]+)$/u);
+    if (midjourneyProfileMatch && req.method === "DELETE") {
+      const profile = await midjourneyWorkspace.deleteProfile(decodeURIComponent(midjourneyProfileMatch[1]));
+      notifyClients("midjourney-change");
+      sendJson(res, { ok: true, profile });
+      return;
+    }
+
     if (url.pathname === "/api/projects/reorder" && req.method === "POST") {
       const body = await readRequestBody(req);
       const projects = await reorderProjects(body.projectIds);
       sendJson(res, { ok: true, projects });
+      return;
+    }
+
+    if (url.pathname === "/api/codex/workspace" && req.method === "GET") {
+      sendJson(res, await codexWorkspace(url.searchParams.get("threadId") || ""));
+      return;
+    }
+
+    const projectFile = url.pathname.match(/^\/api\/project-file\/([^/]+)\/(.+)$/);
+    if (projectFile && req.method === "GET") {
+      const project = await getProject(decodeURIComponent(projectFile[1]));
+      const relativePath = decodeURIComponent(projectFile[2]);
+      await serveFile(req, res, safeResolveProject(project, relativePath), false, `/api/project-file/${encodeURIComponent(project.id)}/`);
+      return;
+    }
+
+    if (url.pathname === "/api/preview" && req.method === "GET") {
+      const outputId = url.searchParams.get("output");
+      const output = outputId ? await findManagedOutput({ outputId }) : null;
+      if (outputId && !output) throw new Error("输出不存在");
+      const file = output ? output.storePath : safeResolveProject(await getProject(url.searchParams.get("project")), url.searchParams.get("path"));
+      sendJson(res, await previewFile(file));
       return;
     }
 
@@ -1846,6 +2277,14 @@ const server = createServer(async (req, res) => {
 
     if (url.pathname === "/api/reveal" && req.method === "POST") {
       const body = await readRequestBody(req);
+      const managed = body.outputId
+        ? await findManagedOutput({ outputId: body.outputId })
+        : await findManagedOutput({ projectId: body.projectId, relativePath: body.path });
+      if (managed) {
+        openFinder(managed.storePath, true);
+        sendJson(res, { ok: true, outputId: managed.outputId });
+        return;
+      }
       const project = await getProject(body.projectId);
       const target = safeResolveProject(project, body.path);
       openFinder(target, true);
@@ -1855,6 +2294,14 @@ const server = createServer(async (req, res) => {
 
     if (url.pathname === "/api/open-folder" && req.method === "POST") {
       const body = await readRequestBody(req);
+      const managed = body.outputId
+        ? await findManagedOutput({ outputId: body.outputId })
+        : await findManagedOutput({ projectId: body.projectId, relativePath: body.path });
+      if (managed) {
+        openFinder(path.dirname(managed.storePath), false);
+        sendJson(res, { ok: true, outputId: managed.outputId });
+        return;
+      }
       const project = await getProject(body.projectId);
       const target = safeResolveProject(project, body.path);
       openFinder(path.dirname(target), false);
@@ -1863,6 +2310,13 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === "/media" || url.pathname === "/download") {
+      const outputId = String(url.searchParams.get("output") || "").trim();
+      if (outputId) {
+        const managed = await findManagedOutput({ outputId });
+        if (!managed) throw new Error("输出不存在");
+        await serveFile(req, res, managed.storePath, url.pathname === "/download");
+        return;
+      }
       const projectId = url.searchParams.get("project");
       const project = await getProject(projectId);
       const requested = url.searchParams.get("path");
@@ -1871,17 +2325,37 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (url.pathname === "/asset-classification.js") {
+      await serveFile(req, res, path.join(__dirname, "asset-classification.js"));
+      return;
+    }
     let staticPath = url.pathname === "/" ? "/index.html" : url.pathname;
     const filePath = safeResolvePublic(staticPath);
     if (!await exists(filePath)) {
       sendText(res, "Not found", 404);
       return;
     }
-    await serveFile(req, res, filePath);
+    await serveFile(req, res, filePath, false, "", true);
   } catch (error) {
     sendJson(res, { error: error.message || String(error) }, 500);
   }
 });
+
+await workspaceGovernance.ensureReleaseBaseline("自动模块基线").catch((error) => {
+  console.warn("Workspace module baseline:", error.message);
+});
+
+async function runWorkspaceCacheCleanup() {
+  try {
+    const result = await workspaceGovernance.autoCleanupCaches();
+    if (result.removedFiles > 0) {
+      console.log(`Workspace cache cleanup: ${result.removedFiles} files, ${result.removedBytes} bytes`);
+      notifyClients("workspace-governance-change");
+    }
+  } catch (error) {
+    console.warn("Workspace cache cleanup:", error.message);
+  }
+}
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`Generation asset workbench running at http://127.0.0.1:${port}`);
@@ -1892,6 +2366,8 @@ ensureWatchers();
 
 setTimeout(runDuplicateSweep, 8000).unref();
 setInterval(runDuplicateSweep, 6 * 60 * 60 * 1000).unref();
+setTimeout(runWorkspaceCacheCleanup, 30000).unref();
+setInterval(runWorkspaceCacheCleanup, 6 * 60 * 60 * 1000).unref();
 setTimeout(checkAutomationSchedule, 3000).unref();
 setInterval(checkAutomationSchedule, 5000).unref();
 

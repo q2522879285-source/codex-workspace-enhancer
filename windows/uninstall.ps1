@@ -41,6 +41,10 @@ $windowsDir = Join-Path $InstallDir "windows"
 & (Join-Path $windowsDir "stop-injector.ps1") -InstallDir $InstallDir -StateDir $StateDir
 
 $node = Get-Command node -ErrorAction SilentlyContinue
+if (-not $node -and $manifest.nodePath -and (Test-Path -LiteralPath $manifest.nodePath)) {
+  $node = [pscustomobject]@{ Source = [string]$manifest.nodePath }
+}
+if (-not $node) { throw "Node.js is needed to remove installed hooks safely. Restore Node.js and retry." }
 $removeScript = Join-Path $InstallDir "scripts\remove-injection.mjs"
 if ($node -and (Test-Path -LiteralPath $removeScript)) {
   & $node.Source $removeScript $Port 2>$null
@@ -65,9 +69,18 @@ if (-not $SkipShortcuts) {
   }
 }
 
+$hookSetup = Join-Path $InstallDir "scripts\setup-task-context-hooks.mjs"
+if ($node -and (Test-Path -LiteralPath $hookSetup)) {
+  & $node.Source $hookSetup --remove
+  if ($LASTEXITCODE -ne 0) { throw "Could not remove owned summary hooks; installation preserved." }
+}
+$backendServer = Join-Path $InstallDir "asset-browser\server.js"
+Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -and $_.CommandLine.Contains($backendServer) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+# Retain state, asset metadata and user configuration for reinstall or export.
+if (Test-Path -LiteralPath (Join-Path $InstallDir "enhancer.config.json")) {
+  Copy-Item -LiteralPath (Join-Path $InstallDir "enhancer.config.json") -Destination (Join-Path $StateDir "enhancer.config.json") -Force
+}
 if (Test-Path -LiteralPath $InstallDir) {
   Remove-Item -LiteralPath $InstallDir -Recurse -Force
 }
-if (Test-Path -LiteralPath $StateDir) {
-  Remove-Item -LiteralPath $StateDir -Recurse -Force
-}
+Write-Output "Uninstalled. User state retained at $StateDir"

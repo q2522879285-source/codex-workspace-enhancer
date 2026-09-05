@@ -38,7 +38,10 @@ test("assets are added to the composer without submitting the task", async () =>
   const injection = await readFile(injectionPath, "utf8");
   assert.match(injection, /event\.source !== frame\.contentWindow/);
   assert.match(injection, /event\.origin !== "https:\/\/web-sandbox\.oaiusercontent\.com"/);
-  assert.match(injection, /参考资产：\$\{assetPath\}/);
+  const insert = extractFunctionSource(injection, "addAssetReferencesToComposer");
+  assert.match(insert, /schema\.nodes\.atMention/);
+  assert.match(insert, /controller\.view\.dispatch\(transaction\)/);
+  assert.doesNotMatch(insert, /\.click\(|requestSubmit\(|\.submit\(/);
   assert.match(injection, /InputEvent\("input"/);
   assert.match(injection, /isAbsoluteWindowsAssetPath\(assetPath\)/);
   assert.doesNotMatch(injection, /handleAssetConsoleMessage[\s\S]{0,1800}(click\(\)|requestSubmit\(|submit\()/);
@@ -88,16 +91,18 @@ test("the private Asset Console surface ships its task-integrated workspace", as
   assert.match(css, /body\.codex-embedded/);
 });
 
-test("the embedded workspace exposes an explicit triage flow and inline filters", async () => {
+test("the embedded workspace separates project and shared scopes with inline triage filters", async () => {
   const [html, app, css] = await Promise.all([
     readFile(embeddedIndexPath, "utf8"),
     readFile(embeddedAppPath, "utf8"),
     readFile(embeddedCssPath, "utf8"),
   ]);
-  const pending = html.indexOf('data-codex-workspace="pending-review"');
-  const task = html.indexOf('data-codex-workspace="bound"');
-  const library = html.indexOf('data-codex-workspace="ai-reference-library"');
-  assert.ok(pending >= 0 && pending < task && task < library, "workflow order is explicit");
+  const project = html.indexOf('data-codex-scope="project"');
+  const shared = html.indexOf('data-codex-scope="shared"');
+  assert.ok(project >= 0 && project < shared, "project assets precede shared libraries");
+  assert.match(html, /data-codex-shared-project="ai-reference-library"/);
+  assert.match(html, /id="embeddedSmartGroupFilter"[\s\S]*?value="review">待确认/);
+  assert.match(app, /async function selectCodexScope/);
   assert.match(html, /id="embeddedFilterMenu"/);
   assert.match(html, /id="embeddedCategoryFilter"/);
   assert.match(html, /id="embeddedStatusFilter"/);
@@ -734,7 +739,8 @@ test("large asset grids hydrate media only near the viewport", async () => {
     readFile(embeddedCssPath, "utf8"),
   ]);
   const previewSource = extractFunctionSource(app, "mediaPreview");
-  const mediaPreview = new Function(`${previewSource}; return mediaPreview;`)();
+  const helpers = ["escapeHtml", "resourceKind"].map((name) => extractFunctionSource(app, name)).join("\n");
+  const mediaPreview = new Function(`const state = { codexEmbedded: true }; ${helpers}; ${previewSource}; return mediaPreview;`)();
   const asset = { kind: "video", mediaUrl: "/media?asset=large-video" };
   const cardMarkup = mediaPreview(asset);
   const detailMarkup = mediaPreview(asset, true);
@@ -765,14 +771,14 @@ test("embedded terminology separates asset location, project binding, and conver
     readFile(embeddedIndexPath, "utf8"),
     readFile(embeddedAppPath, "utf8"),
   ]);
-  assert.match(html, />待处理</);
-  assert.match(html, />项目素材</);
-  assert.match(html, /关联项目：未设置/);
+  assert.match(html, /data-codex-scope="project"[^>]*>项目资产</);
+  assert.match(html, /data-codex-scope="shared"[^>]*>公用资产</);
+  assert.match(html, /id="codexBindProject"[^>]*>关联项目</);
   assert.match(html, /附加到当前对话/);
   assert.match(html, /丢弃（不删除）/);
   assert.match(html, />批量工具</);
   assert.ok(html.indexOf('id="batchCompareAssets"') > html.indexOf('id="batchMorePopover"'), "compare is grouped in the secondary batch menu");
-  assert.match(app, /`关联项目：\$\{boundName\}`/);
+  assert.match(app, /state\.codexBoundProject = data\.project\?\.id \|\| ""/);
   assert.match(app, /移动到「\$\{boundName\}」/);
 });
 

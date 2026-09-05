@@ -1,105 +1,98 @@
-# Codex Workspace Enhancer
+# Codex Workspace Enhancer 2.0
 
-把 Codex 的任务侧栏、Skill 目录和本地素材工作流接成一个连续工作台。
+让每个任务都有自己的工作台。
 
-![Codex Workspace Enhancer 一图流](docs/codex-workspace-enhancer-onepage.png)
+把 **任务、上下文、Skills 和项目资产** 接进 Codex 桌面应用。保留原生对话，在本机提供可配置、可修改的工作流增强。
 
-## 它解决什么
+[下载 v2.0.0](https://github.com/q2522879285-source/codex-workspace-enhancer/releases/tag/v2.0.0) · [修改与扩展](docs/EXTENDING.md) · [版本区别](CHANGELOG.md) · [English](README.en.md)
 
-- **任务更好找**：任务摘要、最近输入/输出、项目筛选、最近使用排序和卡片视图。
-- **入口更顺手**：保留高频入口，把低频站点与插件收进次级位置，并加入 Skill 管理。
-- **Skill 不再堆成一长列**：常用置顶、按工作类型归类、相关 Skill 合并为可展开组，支持搜索与收藏。
-- **资产直接接进任务**：在 Codex 主区域内打开资产控制台，新建项目和文件夹、改名、切换层级、移动与自动整理。
-- **回到对话但不替你发送**：最多附加 8 个本地绝对路径，只写入输入框，不自动提交。
-- **额度显示以原生数据为准**：只展示 Codex 自己记录的剩余比例与重置时间，不做猜测。
+![Codex Workspace Enhancer 2.0 功能界面示意](docs/codex-workspace-enhancer-onepage.png)
+
+## 一套连续的工作台
+
+- **任务导航**：双列卡片 / 列表，置顶 / 项目 / 最近，保留原生任务入口。
+- **上下文**：每个任务独立的目标、进展、下一步、固定约定；手动笔记单独保存。
+- **接续提醒**：可选原生钩子提醒助手读取、核对或维护摘要，不另接总结模型。
+- **Skills**：分类、搜索、收藏；选成输入区标签，随下一条消息发送。选择不等于已加载或执行。
+- **项目资产**：默认跟随当前项目，切换公用库；图片、视频、音频、文档、网页、代码等按类型预览，可记住排除类别。
+- **MJ 素材**：按可识别的完整 P 值组合分组，保留组合顺序，复制 `--p`。
+- **历史与来源**：保存冷档案入口、文件引用和明确的任务来源，不把同项目文件都当成本任务生成物。
 
 ## 安装
 
-### 推荐：完整 Skill 包
+本次参考环境：**Windows、Node.js 22.13+、Codex 桌面应用**。保留 macOS 安装入口，未完成本次真机验证。
 
-从 [Latest Release](https://github.com/q2522879285-source/codex-workspace-enhancer/releases/latest) 下载 `codex-workspace-enhancer-skill.zip`，解压到（压缩包内已经包含 `codex-workspace-enhancer` 目录）：
+### Windows 安装包
 
-```text
-%USERPROFILE%\.codex\skills
-```
-
-然后在 PowerShell 中运行：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\codex-workspace-enhancer\scripts\install-bundled.ps1"
-```
-
-完整包会安装侧栏增强器和本地资产服务，并保留已有项目配置、素材与台账。
-
-### 只安装侧栏前端
-
-下载 `codex-sidebar-enhancer-windows.zip`，解压后运行：
+从 [Releases](https://github.com/q2522879285-source/codex-workspace-enhancer/releases/latest) 下载 `codex-sidebar-enhancer-windows.zip`，解压后运行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
-前端包适合已经有兼容 AssetBrowser 本地服务的环境。
+虽然保留旧下载文件名，**2.0 的这个包已包含本地资产服务**，不是仅前端包。安装不会强制关闭正在运行的 Codex；需要启用调试入口时，先正常退出，再打开安装生成的增强器快捷方式。
 
-## 主要能力
+### 完整 Skill 包
 
-### 任务工作台
-
-- 双列卡片 / 列表切换
-- 任务摘要与最近消息预览
-- 项目模糊搜索、最近使用优先
-- 置顶 / 项目 / 最近分组
-- 当前任务项目与资产上下文同步
-
-### Skill 管理
-
-- 常用 Skill 置顶
-- 按视频创作、导演镜头、画面风格、资产工作台、写作研究、工具管理等分类
-- 动作、Seedance 等相关 Skill 合并成折叠组
-- 搜索、收藏、完整原生列表与原生详情保留
-- 键盘和减少动态效果设置可用
-
-### 资产控制台
-
-- 内嵌 Codex 主区域，不新开窗口
-- 新建项目 / 新建文件夹 / 文件夹改名
-- 多扫描根与多层目录切换
-- 移动到项目、按类型自动整理、撤销
-- 待处理 / 项目素材 / 精选库工作流
-- 缓存、近屏加载与异步防串页
-- 附加路径后返回当前任务并聚焦输入框
-
-## 隐私与安全
-
-- 只监听 `127.0.0.1`，不对外提供服务。
-- 资产 API 使用安装时生成的本地随机令牌。
-- 不上传任务、素材、额度或 Skill 内容。
-- 不修改 Codex 应用包，也不修改对话正文。
-- 安装和卸载只操作产品专属目录；已有资产配置和媒体不会被清空。
-- 默认只接收已经登记的生图/生视频任务：能识别当前任务或绑定项目的结果会直接归档，无法判断归属的生成结果进入“待确认”。普通下载文件不会被扫描、复制或移动。
-- 浏览器生成结果必须通过资产 ID、准确文件名或直接文件绑定；不会再按“下一个下载文件”猜测归属。
-
-## 本地开发
-
-需要 Node.js 22 或更高版本：
+下载 `codex-workspace-enhancer-skill.zip`，解压到 `%USERPROFILE%\.codex\skills`，然后运行：
 
 ```powershell
-npm install
-npm test
-npm run inject
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\codex-workspace-enhancer\scripts\install-bundled.ps1"
 ```
 
-构建可发布安装包：
+两个包安装同一套运行核心；Skill 包附带检查、安装、验证说明。
+
+### 开发者
 
 ```powershell
+git clone https://github.com/q2522879285-source/codex-workspace-enhancer.git
+cd codex-workspace-enhancer
+npm ci
+npm test
 powershell -ExecutionPolicy Bypass -File .\tools\build-release.ps1
 ```
 
-## 兼容性
+## 可选：启用摘要维护提醒
 
-- 主要支持 Windows 版 Codex 桌面应用。
-- 侧栏适配依赖桌面端界面结构；Codex 大版本升级后可能需要同步适配。
-- macOS 旧版注入与卸载脚本仍保留在源码中，但完整资产工作台以 Windows 为主。
+安装默认不更改全局 `AGENTS.md` 或钩子。要使用提醒：
+
+1. 运行已安装的配置脚本：
+   ```powershell
+   node "$env:LOCALAPPDATA\Programs\Codex Sidebar Enhancer\scripts\setup-task-context-hooks.mjs"
+   ```
+2. 在 Codex 正常 `/hooks` 界面审阅、信任；等待一次真实任务事件确认加载。
+3. 将 [摘要维护约定](templates/task-context-rules.md) 按需合并到自己的 `AGENTS.md`。
+
+脚本合并自己登记的条目，不覆盖其他钩子、不改信任库。停用时对同一命令添加 `--remove`。
+
+**摘要仍由当前助手维护。** 提醒降低漏维护的机会，不是无限记忆，也没有承诺固定 token 节省比例。
+
+## 数据和配置放在哪里
+
+| 内容 | Windows 默认位置 |
+|---|---|
+| 程序 | `%LOCALAPPDATA%\Programs\Codex Sidebar Enhancer` |
+| 可选 UI 配置 | 安装目录的 `enhancer.config.json` |
+| 本地资产配置、令牌、台账 | `%LOCALAPPDATA%\CodexSidebarEnhancer\asset-browser` |
+| 独立任务摘要 | `$CODEX_HOME/task-context/<task-id>.json`，默认 `~/.codex` |
+| 原始资产 | 用户自己配置的项目目录 |
+| 手动笔记 | Codex 本地存储，按任务区分 |
+
+已有工作目录中的 `work/task-context.json` 仅在 ID 匹配时复用。升级保留已有配置；卸载保留用户状态与资产。**旧独立 AssetBrowser 的数据不会被自动导入或覆盖**，迁移需明确选择自己的目录。默认资产服务使用本机 5177 端口；如果已被另一服务占用，会明确报错，不接管或终止旧服务。
+
+发布包只含通用代码、空白配置初始化和说明，不含作者的会话、项目目录、账户令牌、素材、票据或私有 Skill。资产服务仅监听本机，初次运行生成独立随机令牌；这不是云端存储或团队账号系统。
+
+## 修改入口
+
+分类与常用技能用 JSON 配置；界面样式、任务摘要存储、文件预览、项目解析和 MJ 分组均有明确的源码模块。[查看配置示例及扩展位置](docs/EXTENDING.md)。
+
+## 已知边界
+
+- 社区增强项目，非 OpenAI 官方产品。部分交互依赖桌面应用的内部 UI，Codex 更新后可能需要适配。
+- 文档预览以可支持格式的文本提取为主，不是完整 Office 排版或编辑。
+- 冷历史入口负责关联与发起检索；具体归档、索引和检索需安装相应工具或 Skill。
+- 3D 重建、配乐等可选工具需另装对应 Skill / Python 依赖，不属于干净安装的核心能力。
+- 图中界面为功能示意，具体 Node 最低版本以安装说明为准。
 
 ## License
 
