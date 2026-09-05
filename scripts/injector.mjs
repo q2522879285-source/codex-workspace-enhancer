@@ -13,6 +13,7 @@ import { assetBrowserRuntime, ensureAssetBrowserState } from "../lib/install-con
 import { PreviewRepository } from "../lib/preview-data.mjs";
 import { presentCardPreview } from "../lib/card-view.mjs";
 import { presentRateLimit } from "../lib/usage-data.mjs";
+import { normalizeTaskId, updateTaskSkillDefaults } from "../lib/task-context-store.mjs";
 import { needsPreviewAttachment } from "../lib/injector-state.mjs";
 import { buildHomeProjectShelf, readTaskboardSnapshot } from "../lib/home-projects.mjs";
 import {
@@ -30,6 +31,7 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = path.join(root, "inject", "conversation-preview.user.js");
 const SCRIPT_ID_GLOBAL = "__CODEX_CONVERSATION_PREVIEW_SCRIPT_IDENTIFIER__";
+const DEFAULT_SKILLS_BINDING = "codexSidebarDefaultSkills";
 const ASSET_CONSOLE_BINDING = "codexSidebarOpenAssetConsole";
 const assetRuntime = assetBrowserRuntime({ installDir: root });
 await ensureAssetBrowserState(assetRuntime);
@@ -93,6 +95,7 @@ let attachedTargetId = null;
 let client = null;
 let registeredScriptIdentifier = null;
 let removeBindingListener = null;
+let removeDefaultSkillsListener = null;
 let assetConsoleProxy = null;
 let assetConsoleProxyQueue = Promise.resolve();
 let assetConsoleStartPromise = null;
@@ -484,6 +487,28 @@ async function teardownAssetConsoleProxy() {
   });
 }
 
+async function handleDefaultSkillsBinding(payload) {
+  let message;
+  try { message = JSON.parse(payload); } catch { return; }
+  const threadId = normalizeTaskId(message?.threadId);
+  if (!threadId || typeof message.requestId !== 'string' || !['add', 'remove'].includes(message.action)) return;
+  const target = client;
+  const result = { threadId, requestId: message.requestId };
+  try {
+    const active = await target.evaluate("window.__codexConversationPreviewInjection__?.getDefaultSkillsTask?.() || null");
+    if (active?.threadId !== threadId) return;
+    const entry = message.action === 'add'
+      ? active.entries?.find(item => item.path === message.entry?.path && item.name === message.entry?.name && item.enabled !== false)
+      : null;
+    if (message.action === 'add' && !entry) throw Error('技能目录已变化，请刷新后选择。');
+    const cwd = repository.overviewCache.get(threadId)?.cwd;
+    if (!cwd) throw Error('当前任务目录暂不可用，请稍后重试。');
+    result.data = updateTaskSkillDefaults({ threadId, cwd, codexHome: repository.codexHome, action: message.action, entry, value: message.value });
+  } catch (error) { result.error = error.message; }
+  await target.evaluate(`window.__codexConversationPreviewInjection__?.setSkillDefaults?.(${JSON.stringify(result)})`);
+}
+
+
 async function handleAssetConsoleBinding(payload) {
   let message = {};
   try { message = JSON.parse(payload || "{}"); } catch {}
@@ -533,6 +558,24 @@ async function bindAssetConsole({ resetBinding = true } = {}) {
   if (resetBinding) {
     removeBindingListener?.();
     removeBindingListener = null;
+    removeDefaultSkillsListener?.();
+    removeDefaultSkillsListener = null;
+  }
+  if (!removeDefaultSkillsListener) {
+    await client.send("Runtime.enable");
+    try { await client.send("Runtime.removeBinding", { name: DEFAULT_SKILLS_BINDING }); } catch {}
+    await client.send("Runtime.addBinding", { name: DEFAULT_SKILLS_BINDING });
+    removeDefaultSkillsListener = client.on("Runtime.bindingCalled", ({ name, payload, executionContextId }) => {
+      if (name !== DEFAULT_SKILLS_BINDING) return;
+      const target = client;
+      target.send("Runtime.evaluate", {
+        contextId: executionContextId,
+        expression: "window === window.top && location.protocol === 'app:'",
+        returnByValue: true,
+      }).then(result => {
+        if (client === target && result.result?.value === true) return handleDefaultSkillsBinding(payload);
+      }).catch(() => {});
+    });
   }
   const assetAvailable = Boolean(assetConsoleServer && existsSync(assetConsoleServer));
   const operationsAvailable = false;
@@ -563,6 +606,8 @@ async function attach() {
     client?.close();
     client = await connectMainCodex(options.port);
     removeBindingListener = null;
+    removeDefaultSkillsListener?.();
+    removeDefaultSkillsListener = null;
     registeredScriptIdentifier = null;
   }
 
@@ -666,6 +711,8 @@ async function stop() {
   await teardownAssetConsoleProxy();
   removeBindingListener?.();
   removeBindingListener = null;
+  removeDefaultSkillsListener?.();
+  removeDefaultSkillsListener = null;
   client?.close();
 }
 

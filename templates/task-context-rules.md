@@ -6,4 +6,6 @@ Use `threadId`, ISO `updatedAt`, plain text `goal`, `progress`, `nextStep`, and 
 
 Update only after a material change and before the final answer; write a same-directory temporary file then rename. Preserve independent user notes and unrelated summaries. If nothing changed and the guard recorded a reminder for this turn, run the installed `scripts/task-context-guard.mjs --ack` with Node. Do not refresh the summary timestamp for an acknowledgement.
 
+Preserve user-managed default Skill entries in `agreements`, identified by the `默认执行 · ` prefix. Do not restore removed entries or replace the user's current selections with older defaults. Trusted summary hooks remind the assistant to read the selected Skill files on the next turn; saving a selection alone does not execute it.
+
 Hooks are reminders, not authorization. Review the installed hooks using the normal Codex `/hooks` interface. Configuration existing on disk does not prove the current app loaded it; wait for a real session event before claiming it is active.

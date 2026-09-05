@@ -2576,8 +2576,13 @@
       .codex-task-skills-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 8px; }
       .codex-task-skills-heading h3 { margin: 0; font-size: 13px; color: #eceff1; }
       .codex-task-skills-heading span, [data-task-skill-count], [data-task-skill-status] { color: #939da6; font-size: 11px; }
-      .codex-task-skill-defaults { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 20px; color: #b8c1c9; }
-      .codex-task-skill-defaults > span { padding: 5px 8px; border-radius: 5px; background: #ffffff06; border: 1px solid #ffffff10; }
+      .codex-task-skill-defaults { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 18px; color: #b8c1c9; }
+      .codex-task-skill-defaults > span { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 9px; border-radius: 6px; background: #ffffff06; border: 1px solid #ffffff10; }
+      .codex-task-skill-defaults > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      [data-codex-task-skills] .codex-task-skill-defaults button { flex: 0 0 auto; padding: 2px 4px; min-height: 24px; font-size: 11px; white-space: nowrap; }
+      [data-task-skill-default-hint] { margin: 0; color: #939da6; font-size: 11px; line-height: 1.5; }
+      [data-codex-task-skills] [data-task-skill-default-add] { border-color: #ffffff24; color: #bdd5e9; white-space: nowrap; }
+      [data-task-default-picker="true"] [data-task-skill-search] { border-color: #85afd370; }
       [data-task-skill-search] { box-sizing: border-box; width: 100%; padding: 9px 10px; border: 1px solid #ffffff26; border-radius: 7px; background: #ffffff05; color: #eceff1; font: inherit; }
       .codex-task-skill-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 10px 0; }
       .codex-task-skill-summary { display: flex; align-items: baseline; gap: 10px; margin: 12px 0; }
@@ -4637,7 +4642,8 @@
     const section = document.createElement("section");
     section.setAttribute("data-codex-task-skills", "");
     section.innerHTML = `
-      <div class="codex-task-skills-heading"><h3>默认执行</h3><span>约定，非加载状态</span></div>
+      <div class="codex-task-skills-heading"><h3>默认执行</h3><button type="button" data-task-skill-default-add aria-pressed="false">添加/删除</button></div>
+      <p data-task-skill-default-hint>仅此任务 · 启用摘要提醒后，从下一条消息提醒读取</p>
       <div data-task-skill-defaults class="codex-task-skill-defaults"></div>
       <div class="codex-task-skills-heading"><h3>Skill 管理</h3><button type="button" data-task-skill-refresh>刷新</button></div>
       <input type="search" data-task-skill-search aria-label="搜索技能" placeholder="搜索所有技能" autocomplete="off">
@@ -4647,6 +4653,14 @@
       <div class="codex-task-skill-summary"><p data-task-skill-status role="status">选中后显示在输入框上方，随消息使用。</p><span data-task-skill-count></span></div>
       <div data-task-skill-list></div>`;
     section.skillFilter = "常用";
+    section.querySelector("[data-task-skill-default-add]").onclick = () => {
+      if (section.defaultsPending) return;
+      section.pickingDefaults = !section.pickingDefaults;
+      section.querySelector("[data-task-skill-status]").textContent = section.pickingDefaults
+        ? "上方删除默认项，下方搜索或按分类添加。" : "选中后显示在输入框上方，随消息使用。";
+      renderTaskSkillsSection(section, section.skillsSnapshot);
+      if (section.pickingDefaults) section.querySelector("[data-task-skill-search]").focus();
+    };
     section.querySelector("[data-task-skill-search]").oninput = () => renderTaskSkillList(section);
     section.querySelectorAll("[data-task-skill-filter]").forEach((button) => {
       button.onclick = () => {
@@ -4667,11 +4681,44 @@
       ? "已选中技能，随你的下一条消息使用。" : "当前输入框暂不支持技能附件。";
   }
 
+  function changeTaskSkillDefault(section, threadId, action, entry, value) {
+    if (!section.isConnected || section.defaultsPending || section.threadId !== threadId
+      || normalizedThreadId(currentConversationThreadId()) !== threadId) return;
+    if (action === "add" && (!entry || entry.enabled === false || !taskSkillCatalog?.entries.includes(entry))) return;
+    const status = section.querySelector("[data-task-skill-status]");
+    if (typeof window.codexSidebarDefaultSkills !== "function") {
+      status.textContent = "默认设置暂不可用，请稍后重试。";
+      return;
+    }
+    const requestId = crypto.randomUUID();
+    section.defaultsPending = requestId;
+    status.textContent = "正在保存默认设置…";
+    renderTaskSkillsSection(section, section.skillsSnapshot);
+    section.defaultsTimer = setTimeout(() => setSkillDefaults({ threadId, requestId, error: "保存未确认，请刷新后重试。" }), 10_000);
+    try { window.codexSidebarDefaultSkills(JSON.stringify({ threadId, requestId, action, entry, value })); }
+    catch { setSkillDefaults({ threadId, requestId, error: "默认设置保存失败，请稍后重试。" }); }
+  }
+
+  function setSkillDefaults(result) {
+    const section = document.querySelector("[data-codex-task-skills]");
+    if (!section || section.defaultsPending !== result.requestId || section.threadId !== result.threadId
+      || normalizedThreadId(currentConversationThreadId()) !== result.threadId) return;
+    clearTimeout(section.defaultsTimer);
+    section.defaultsPending = null;
+    if (!result.error && result.data?.threadId === result.threadId && Array.isArray(result.data.agreements)) {
+      section.skillsSnapshot = { ...section.skillsSnapshot, taskContext: { ...section.skillsSnapshot.taskContext, ...result.data } };
+      if (normalizedThreadId(threadOverview?.threadId) === result.threadId) threadOverview = { ...threadOverview, taskContext: section.skillsSnapshot.taskContext };
+    }
+    renderTaskSkillsSection(section, section.skillsSnapshot);
+    section.querySelector("[data-task-skill-status]").textContent = result.error || "已保存；启用摘要提醒后，从下一条消息提醒读取。";
+  }
+
+
   function renderTaskSkillList(section) {
     const entries = taskSkillCatalog?.entries || [];
     const favorites = entries.length ? loadSkillFavorites(entries) : new Set();
     const query = normalizedSkillText(section.querySelector("[data-task-skill-search]").value);
-    const signature = JSON.stringify([section.threadId, section.skillFilter, query, [...favorites]]);
+    const signature = JSON.stringify([section.threadId, section.skillFilter, query, [...favorites], section.pickingDefaults, section.defaultsSignature]);
     if (section.skillListSignature === signature && section.skillListCatalog === taskSkillCatalog) return;
     section.skillListSignature = signature;
     section.skillListCatalog = taskSkillCatalog;
@@ -4710,15 +4757,19 @@
       const invoke = document.createElement("button");
       invoke.type = "button";
       invoke.className = "codex-task-skill-invoke";
-      invoke.disabled = entry.enabled === false;
-      invoke.title = entry.enabled === false ? "此技能已停用" : "选择技能";
+      const isDefault = section.skillDefaults?.some((value) => value.includes(`（${entry.name}）`));
+      invoke.disabled = entry.enabled === false || Boolean(section.pickingDefaults && (section.defaultsPending || isDefault));
+      invoke.title = entry.enabled === false ? "此技能已停用" : section.pickingDefaults ? (isDefault ? "已加入默认" : "加入默认") : "选择技能";
       invoke.setAttribute("aria-label", `${invoke.title}：${entry.title}`);
       const title = document.createElement("strong");
-      title.textContent = entry.title;
+      title.textContent = `${section.pickingDefaults ? (isDefault ? "✓ " : "＋ ") : ""}${entry.title}`;
       const description = document.createElement("span");
       description.textContent = SKILL_DESCRIPTION_OVERRIDES.get(entry.title) || entry.description || entry.name;
       invoke.append(title, description);
-      invoke.onclick = () => addTaskSkillRequest(section, threadId, taskSkillRequest(entry));
+      const pickingDefaults = section.pickingDefaults;
+      invoke.onclick = () => pickingDefaults
+        ? changeTaskSkillDefault(section, threadId, "add", entry)
+        : addTaskSkillRequest(section, threadId, taskSkillRequest(entry));
       const favorite = document.createElement("button");
       favorite.type = "button";
       favorite.className = "codex-task-skill-star";
@@ -4739,13 +4790,24 @@
   }
 
   function renderTaskSkillsSection(section, snapshot) {
+    if (!snapshot) return;
     const threadId = normalizedThreadId(snapshot.threadId);
     if (section.threadId !== threadId) {
+      clearTimeout(section.defaultsTimer);
+      section.defaultsPending = null;
+      section.pickingDefaults = false;
       section.threadId = threadId;
       section.querySelector("[data-task-skill-status]").textContent = "选中后显示在输入框上方，随消息使用。";
     }
+    section.skillsSnapshot = snapshot;
     const defaults = taskContextForSnapshot(snapshot)?.agreements.filter((value) => value.startsWith("默认执行 · ")) || [];
-    const signature = JSON.stringify([threadId, defaults]);
+    section.skillDefaults = defaults;
+    section.dataset.taskDefaultPicker = String(Boolean(section.pickingDefaults));
+    const add = section.querySelector("[data-task-skill-default-add]");
+    add.textContent = section.pickingDefaults ? "完成" : "添加/删除";
+    add.disabled = Boolean(section.defaultsPending);
+    add.setAttribute("aria-pressed", String(Boolean(section.pickingDefaults)));
+    const signature = JSON.stringify([threadId, defaults, section.defaultsPending, section.pickingDefaults]);
     if (section.defaultsSignature !== signature) {
       section.defaultsSignature = signature;
       const list = section.querySelector("[data-task-skill-defaults]");
@@ -4753,11 +4815,23 @@
       for (const value of defaults) {
         const text = value.replace(/^默认执行 · /u, "");
         const chip = document.createElement("span");
-        chip.textContent = text.split(/[（：]/u)[0];
+        const label = document.createElement("span");
+        label.textContent = text.split(/[（：]/u)[0];
         chip.title = text;
+        chip.append(label);
+        if (section.pickingDefaults) {
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.textContent = "删除";
+          remove.disabled = Boolean(section.defaultsPending);
+          remove.title = "移出此任务默认，不卸载技能";
+          remove.setAttribute("aria-label", `移除默认：${label.textContent}`);
+          remove.onclick = () => changeTaskSkillDefault(section, threadId, "remove", null, value);
+          chip.append(remove);
+        }
         list.append(chip);
       }
-      if (!defaults.length) list.textContent = "此任务尚未记录默认执行约定。";
+      if (!defaults.length) list.textContent = "暂无默认项，点“添加/删除”选择技能。";
     }
     requestTaskSkillCatalog();
     renderTaskSkillList(section);
@@ -4767,7 +4841,7 @@
     taskSkillCatalog = value && Array.isArray(value.entries) ? value : { entries: [], error: "技能目录不可用，请刷新。" };
     const section = document.querySelector("[data-codex-task-skills]");
     if (section) {
-      section.querySelector("[data-task-skill-status]").textContent = taskSkillCatalog.error || "选中后显示在输入框上方，随消息使用。";
+      if (!section.defaultsPending) section.querySelector("[data-task-skill-status]").textContent = taskSkillCatalog.error || (section.pickingDefaults ? "上方删除默认项，下方搜索或按分类添加。" : "选中后显示在输入框上方，随消息使用。");
       renderTaskSkillList(section);
     }
   }
@@ -6410,6 +6484,8 @@
     setPreviews,
     setThreadOverview,
     setSkillCatalog,
+    setSkillDefaults,
+    getDefaultSkillsTask: () => ({ threadId: normalizedThreadId(currentConversationThreadId()), entries: taskSkillCatalog?.entries || [] }),
     setSearchCatalog,
     setUsage,
     setHomeProjects,

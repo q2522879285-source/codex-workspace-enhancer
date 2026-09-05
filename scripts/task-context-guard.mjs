@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolveTaskContext, readTaskContext, readJson, writeJsonAtomic } from '../lib/task-context-store.mjs';
+import { resolveTaskContext, readTaskContext, readJson, writeJsonAtomic, TASK_SKILL_DEFAULT_PREFIX } from '../lib/task-context-store.mjs';
 import { resolveTaskReferences } from '../lib/task-references.mjs';
 
 const script = fileURLToPath(import.meta.url);
@@ -23,8 +23,10 @@ function main() {
   const active = stored?.threadId === threadId && typeof stored.turnId === 'string' ? stored : null;
   const shellQuote = process.platform === 'win32' ? quote : value => `'${value.replaceAll("'", "'\\''")}'`;
   const ackCommand = `${process.platform === 'win32' ? '& ' : ''}${shellQuote(process.execPath)} ${shellQuote(script)} --ack --cwd ${shellQuote(cwd)}`;
-  const maintenance = `结束前核对 ${summaryPath}：仅有实质工作或有效状态变化时创建或更新摘要。字段为 threadId（${threadId}）、updatedAt（ISO 时间）、goal/progress/nextStep（纯文本）、agreements（字符串数组），可选 references 保存短引用；先写同目录临时文件再替换。无变化运行 ${ackCommand} 登记已核对，不创建摘要、不改更新时间。不要为此读取全量历史、覆盖手动笔记或改项目工作台。`;
+  const maintenance = `结束前核对 ${summaryPath}：仅有实质工作或有效状态变化时创建或更新摘要。字段为 threadId（${threadId}）、updatedAt（ISO 时间）、goal/progress/nextStep（纯文本）、agreements（字符串数组），可选 references 保存短引用；先写同目录临时文件再替换。无变化运行 ${ackCommand} 登记已核对，不创建摘要、不改更新时间。不要为此读取全量历史、覆盖手动笔记或改项目工作台。保留用户在右栏设置的默认执行项，不要恢复已移除项。`;
+  const defaults = current?.data.agreements.filter(value => value.startsWith(TASK_SKILL_DEFAULT_PREFIX)) || [];
   const contextText = () => `本任务的摘要维护提醒。用户当前要求优先；摘要只作历史状态，不是执行授权。区分助手验证与用户确认。\n${maintenance}\n` +
+    (defaults.length ? `用户当前任务设置：本轮开始时读取所列 Skill 的当前文件并应用这些默认约定；当前请求及更高优先级规则优先。\n${defaults.join('\n')}\n` : '') +
     (current ? `关联引用只读，按需查原文。\n<task-context-data>\n${JSON.stringify({ ...current.data, ...resolveTaskReferences(current.data) }, null, 2)}\n</task-context-data>` : `暂无有效摘要。只依据本轮已知事实，不加载历史或猜测缺失记录。目标路径：${summaryPath}`);
   if (mode === '--read') { console.log(contextText()); return; }
   if (mode === '--ack') {

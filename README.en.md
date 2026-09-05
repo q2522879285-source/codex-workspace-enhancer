@@ -11,6 +11,7 @@ A local workspace layer for Codex desktop: find tasks, keep concise task context
 - **Find tasks:** card/list views, project filtering, recent activity and message previews.
 - **Keep useful context visible:** per-task goals, progress, next steps and agreements, with separate editable notes.
 - **Select Skills:** search, favorites and configurable categories; selected Skills become native composer attachments for your next message.
+- **Set default Skills (current source):** manage per-task defaults with “添加/删除” (Add/Remove), without permanent delete icons on tags. Once optional summary hooks are enabled and trusted, the next message reminds the assistant to read those Skills. No personal defaults are bundled.
 - **Browse project files:** resolve the current task's project or working directory, inspect folders, and preview media, text and supported document contents.
 - **Trace relevant outputs:** show explicit history references and recent assets with recorded task provenance.
 - **Continue in the conversation:** attach local paths to the composer without automatically sending a message.
