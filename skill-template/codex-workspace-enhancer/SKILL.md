@@ -12,6 +12,7 @@ Turn Codex into a continuous task-and-asset workspace without replacing its nati
 1. Run `scripts/inspect.ps1` for install, repair, or compatibility work.
 2. Choose one scope:
    - **Audit/UI:** inspect native structure first; read `references/interaction-model.md` and `references/acceptance-checklist.md`.
+   - **Thread Map:** read `references/thread-task-map.md` for the per-task durable plan, editing boundaries, and validation.
    - **Install/update:** run `scripts/install-bundled.ps1 -WhatIf` first, then rerun without `-WhatIf` after reviewing the plan.
    - **Port/adapt:** read `references/architecture.md` and `references/adapter-contract.md`; replace only the platform adapter.
 3. Preserve user data and native Codex controls. Add capability around them; do not recreate the whole sidebar as an overlay.
@@ -23,6 +24,9 @@ Turn Codex into a continuous task-and-asset workspace without replacing its nati
 - Synchronize the weekly usage display from the latest valid Codex rate-limit event. Never fabricate a percentage.
 - Open Asset Console inside the current Codex task. Do not launch a second visible app window.
 - Refresh the embedded task context when the active task changes; invalidate the old iframe/session.
+- Keep each task map bound to one normalized task ID. Context refreshes must not replace its saved core plan or manual edits.
+- Map edits change only enhancer-owned derived data, never the native conversation or composer. Show source and unknown states instead of guessing progress.
+- Use a free-position, keyboard-reachable mind map with a text outline; keep expansion inside the current Codex window and restore the original layout on collapse.
 - Return selected assets to the current composer as absolute local paths only. Never submit or send automatically.
 - Route registered generated images and videos by their originating task/project; unresolved generated media may enter Pending Review, but ordinary Downloads must remain untouched.
 - Require a direct asset ID, exact filename, or direct file attachment before claiming a browser download. Never guess ownership from the next same-kind file.
@@ -56,5 +60,6 @@ Keep the stable workflow and acceptance rules unchanged. Implement platform diff
 - Verify source, packaged runtime, and installed runtime hashes when claiming consistency.
 - Exercise task A -> task B with Asset Console open.
 - Exercise rapid folder A -> B switching with reversed response order.
+- For task-map changes, check task isolation, stable refresh, explicit synchronization, node actions, persistence, and JSON export; distinguish deterministic checks from desktop interaction acceptance.
 - Confirm no automatic message send and no deletion outside owned paths.
 - Use independent review only for high-impact, security, data-loss or uncertain critical changes.

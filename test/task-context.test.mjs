@@ -90,3 +90,14 @@ test('missing, malformed and invalid context leave the base overview available',
   await rm(file);
   assert.deepEqual(await repository.readOverview(firstId), baseline);
 });
+
+test('explicit map is passed through only for its matching task and refreshes independently', async (t) => {
+  const { repository, file } = await fixture(t);
+  const taskMap = { coreTask: { text: 'Stable plan' }, branches: [{ id: 'check', state: 'pending' }] };
+  await writeFile(file, JSON.stringify({ ...valid, taskMap }));
+  assert.deepEqual((await repository.readOverview(firstId)).taskContext.taskMap, taskMap);
+  assert.equal((await repository.readOverview(secondId)).taskContext, null);
+  taskMap.branches[0].state = 'done';
+  await writeFile(file, JSON.stringify({ ...valid, taskMap }));
+  assert.equal((await repository.readOverview(firstId)).taskContext.taskMap.branches[0].state, 'done');
+});

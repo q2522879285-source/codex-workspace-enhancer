@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   "use strict";
 
   const SENTINEL = "__codexConversationPreviewInjection__";
@@ -77,7 +77,7 @@
   let folderSearchExpansionPending = null;
   let folderSearchRevealKey = "";
   let threadOverview = null;
-  let taskRailTab = "context";
+  let taskRailTab = "map";
   let taskSkillCatalog = null;
   let taskSkillCatalogKey = "";
   let taskSkillRequestCleanup = null;
@@ -2562,7 +2562,73 @@
       html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} .codex-thread-overview-header { min-height: 44px; padding: 0 12px; gap: 8px; }
       html[data-codex-task-shell="true"] #${THREAD_OVERVIEW_RAIL_ID} [data-codex-thread-overview-heading] { display: none; }
       [data-codex-task-rail-tabs] { display: flex; align-self: stretch; flex: 1; gap: 16px; min-width: 0; }
-      [data-codex-task-rail-tabs][hidden], [data-codex-task-skills][hidden], [data-codex-task-assets][hidden], [data-codex-task-context-extras][hidden] { display: none !important; }
+      [data-codex-task-rail-tabs][hidden], [data-codex-task-skills][hidden], [data-codex-task-assets][hidden], [data-codex-task-context-extras][hidden], [data-codex-task-map][hidden] { display: none !important; }
+      [data-codex-task-map] { display: flex; flex-direction: column; flex: 1; min-height: 340px; min-width: 0; overflow: hidden; }
+      #${THREAD_OVERVIEW_RAIL_ID}[data-task-pane="map"] .codex-thread-overview-body { padding: 0; overflow: hidden; }
+      html[data-codex-task-shell="true"]:not([data-codex-company-workbench="true"]):has(#codex-thread-overview-rail[data-map-expanded="true"][data-task-pane="map"][data-collapsed="false"]) { --codex-task-map-expanded-width: 66.6667%; }
+      html[data-codex-task-shell="true"]:not([data-codex-company-workbench="true"]):has(#codex-thread-overview-rail[data-map-expanded="true"][data-task-pane="map"][data-collapsed="false"]) .app-shell-left-panel {
+        width: 0 !important;
+        flex: 0 0 0 !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+      html[data-codex-task-shell="true"]:not([data-codex-company-workbench="true"]):has(#codex-thread-overview-rail[data-map-expanded="true"][data-task-pane="map"][data-collapsed="false"]) [data-app-shell-main-content-layout="thread-edge-scroll"] > div > div { position: relative !important; }
+      html[data-codex-task-shell="true"]:not([data-codex-company-workbench="true"]):has(#codex-thread-overview-rail[data-map-expanded="true"][data-task-pane="map"][data-collapsed="false"]) [data-app-shell-main-content-layout="thread-edge-scroll"] > div > div > .h-full.min-h-0.min-w-0.flex-1 {
+        flex: 0 0 calc(100% - var(--codex-task-map-expanded-width)) !important;
+        width: calc(100% - var(--codex-task-map-expanded-width)) !important;
+        max-width: none !important;
+      }
+      html[data-codex-task-shell="true"]:not([data-codex-company-workbench="true"]):has(#codex-thread-overview-rail[data-map-expanded="true"][data-task-pane="map"][data-collapsed="false"]) [data-app-shell-main-content-layout="thread-edge-scroll"] .thread-scroll-container > div { margin-left: 16px !important; margin-right: 0 !important; }
+      html[data-codex-task-shell="true"]:not([data-codex-company-workbench="true"]):has(#codex-thread-overview-rail[data-map-expanded="true"][data-task-pane="map"][data-collapsed="false"]) [data-app-shell-main-content-layout="thread-edge-scroll"] .thread-scroll-container > div > div { margin-left: 0 !important; margin-right: 0 !important; }
+      html[data-codex-task-shell="true"]:not([data-codex-company-workbench="true"]):has(#codex-thread-overview-rail[data-map-expanded="true"][data-task-pane="map"][data-collapsed="false"]) #codex-thread-overview-rail {
+        position: absolute !important;
+        right: 0 !important;
+        top: 0 !important;
+        bottom: 0 !important;
+        width: var(--codex-task-map-expanded-width) !important;
+        flex: 0 0 auto !important;
+        z-index: 5 !important;
+      }
+      .codex-map-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 8px; }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-map-toolbar button { min-width: 28px; min-height: 28px; padding: 3px 7px; border: 0; border-radius: 5px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+      #${THREAD_OVERVIEW_RAIL_ID} .codex-map-toolbar button:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+      .codex-map-toolbar output { min-width: 38px; text-align: center; font-size: 11px; }
+      .codex-map-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 2px 12px 6px; font-size: 11px; color: #b8c1c9; }
+      .codex-map-summary span { white-space: nowrap; }
+      .codex-map-summary .done { color: #65c698; }
+      .codex-map-summary .in-progress { color: #9cc9eb; }
+      .codex-map-summary .pending { color: #c4cbd1; }
+      .codex-map-summary .blocked { color: #ec9e90; }
+      .codex-map-toolbar [data-map-action="expand"] { margin-left: auto; }
+      .codex-map-viewport { display: block; width: 100%; flex: 1; min-height: 240px; overflow: hidden; touch-action: none; cursor: grab; user-select: none; color: var(--color-token-foreground, #e8e8e8); }
+      .codex-map-viewport[data-dragging="true"], .codex-map-viewport[data-dragging="true"] .codex-map-node { cursor: grabbing; }
+      .codex-map-link { fill: none; stroke: #819aae; stroke-width: 1.8; opacity: .7; pointer-events: none; }
+      .codex-map-node { cursor: grab; outline: none; }
+      .codex-map-node text { fill: currentColor; font-family: inherit; font-size: 16px; pointer-events: none; }
+      .codex-map-node[data-kind="branch"] text { font-size: 18px; font-weight: 600; }
+      .codex-map-node[data-kind="core"] text { font-size: 20px; font-weight: 650; }
+      .codex-map-node .codex-map-hit { fill: color-mix(in srgb, #ffffff 4%, var(--color-token-main-surface-primary, #181818)); stroke: #ffffff18; stroke-width: 1.5; }
+      .codex-map-node[data-kind="branch"] .codex-map-hit { fill: color-mix(in srgb, #85afd3 9%, var(--color-token-main-surface-primary, #181818)); }
+      .codex-map-node[data-kind="core"] .codex-map-hit { fill: color-mix(in srgb, #85afd3 17%, var(--color-token-main-surface-primary, #181818)); stroke: #85afd3; }
+      .codex-map-node[data-state="in-progress"] .codex-map-hit { stroke: #9cc9eb; stroke-width: 2; }
+      .codex-map-node[data-state="blocked"] .codex-map-hit { stroke: #ec9e90; }
+      .codex-map-node:hover .codex-map-hit, .codex-map-node:focus-visible .codex-map-hit, .codex-map-node[aria-pressed="true"] .codex-map-hit { stroke: #9cc9eb; }
+      .codex-map-node circle { fill: #98a3ad; r: 4.5; }
+      .codex-map-node[data-state="done"] circle { fill: #65c698; }
+      .codex-map-node[data-state="in-progress"] circle { fill: #9cc9eb; }
+      .codex-map-node[data-state="blocked"] circle { fill: #ec9e90; }
+      .codex-map-info { padding: 8px 12px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+      .codex-map-info strong, .codex-map-info small { display: block; }
+      .codex-map-info small { opacity: .8; }
+      .codex-map-info-action { margin-top: 6px; padding: 4px 8px; border: 1px solid #ffffff1c; border-radius: 5px; background: transparent; color: inherit; font: inherit; font-size: 11px; cursor: pointer; }
+      .codex-map-info-action:hover { background: #ffffff0d; }
+      .codex-map-state-select { min-height: 28px; max-width: 94px; padding: 2px 5px; border: 1px solid #ffffff1c; border-radius: 5px; background: transparent; color: inherit; font: inherit; font-size: 11px; }
+      .codex-map-help { padding: 4px 12px 8px; font-size: 11px; opacity: .8; }
+      .codex-map-outline { padding: 0 12px 8px; font-size: 12px; max-height: 180px; overflow: auto; }
+      .codex-map-outline ul { list-style: disc; padding-left: 20px; }
+      .codex-map-toolbar button:focus-visible, .codex-map-viewport:focus-visible { outline: 2px solid #9cc9eb; outline-offset: -2px; }
       [data-codex-task-rail-tabs] button { padding: 0 2px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #969fa6; font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1.2; cursor: pointer; white-space: nowrap; }
       [data-codex-task-rail-tabs] button[aria-pressed="true"] { color: #edf1f4; border-bottom-color: #85afd3; }
       [data-codex-task-rail-tabs] button:hover { color: #fff; }
@@ -5148,6 +5214,7 @@
       </div>
       <div class="codex-thread-overview-body" aria-live="polite">
         <p class="codex-thread-overview-title" data-codex-thread-overview-title></p>
+        <section data-codex-task-map hidden aria-label="线程任务图"></section>
         <div data-codex-task-context-extras></div>
         <section class="codex-thread-overview-card" data-codex-thread-default-summary>
           <span class="codex-thread-overview-label" data-codex-thread-summary-label>总结</span>
@@ -5178,7 +5245,7 @@
     const tabs = document.createElement("nav");
     tabs.setAttribute("data-codex-task-rail-tabs", "");
     tabs.setAttribute("aria-label", "右栏内容");
-    for (const [key, label] of [["context", "上下文"], ["skills", "Skills"], ["assets", "资产"]]) {
+    for (const [key, label] of [["map", "任务图"], ["context", "上下文"], ["skills", "Skills"], ["assets", "资产"]]) {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
@@ -5207,6 +5274,427 @@
     return rail;
   }
 
+  function taskMapModel(snapshot, frozenTaskMap = null) {
+    const context = taskContextForSnapshot(snapshot);
+    const text = (v, fallback = "未知") => compactThreadText(v, 180) || fallback;
+    const state = (v) => ["done", "in-progress", "pending", "blocked", "cancelled"].includes(v) ? v : "unknown";
+    const fallback = [
+      { id: "goal", label: "目标", text: context?.goal },
+      { id: "status", label: "状态", text: snapshot.running ? "正在处理" : "未知", state: snapshot.running ? "in-progress" : "unknown", source: "Codex 状态" },
+      { id: "milestones", label: "里程碑", text: "尚未拆分" },
+      { id: "next", label: "下一步", text: context?.nextStep, state: context?.nextStep ? "pending" : "unknown" },
+      { id: "blockers", label: "阻塞", text: "暂无明确记录" },
+      { id: "related", label: "相关内容", text: `${context?.references?.length || 0} 条稳定引用` },
+    ];
+    const branchFallback = {
+      goal: "核心任务与验收标准",
+      design: "结构与交互关系",
+      status: snapshot.running ? "当前正在处理" : "当前进度与状态",
+      milestones: "已完成与待完成节点",
+      next: "下一步行动",
+      blockers: "待解决的阻塞",
+      related: "相关文件与稳定引用",
+    };
+    const sourceMap = frozenTaskMap || context?.taskMap || null;
+    const branches = Array.isArray(sourceMap?.branches) && sourceMap.branches.length ? sourceMap.branches.slice(0, 6) : fallback;
+    const core = sourceMap?.coreTask || {};
+    const nodes = [{ id: "core", kind: "core", label: text(core.text || context?.goal || snapshot.title, "尚未记录核心任务"), state: state(core.state), source: core.source || "任务摘要", updatedAt: core.updatedAt || context?.updatedAt, x: 0, y: 0 }];
+    branches.forEach((raw, index) => {
+      const b = raw || {};
+      const half = Math.ceil(branches.length / 2);
+      const left = index < half;
+      const side = left ? -1 : 1;
+      const rows = left ? half : branches.length - half;
+      const row = left ? index : index - half;
+      const id = `branch:${b.id || index}`;
+      const y = (row - (rows - 1) / 2) * 190;
+      nodes.push({ id, parent: "core", kind: "branch", label: text(b.label, "未命名分支"), detail: text(b.text || b.detail, branchFallback[b.id] || "暂无摘要"), state: state(b.state), source: b.source || "任务摘要", updatedAt: b.updatedAt || context?.updatedAt, x: side * 245, y });
+      const children = Array.isArray(b.children) ? b.children.slice(0, 5) : [];
+      children.forEach((child, i) => nodes.push({ id: `${id}:${child?.id || text(child?.text || child?.label)}:${i}`, parent: id, kind: "leaf", label: text(child?.text || child?.label), state: state(child?.state), source: child?.source || b.source || "任务摘要", updatedAt: child?.updatedAt || b.updatedAt || context?.updatedAt, x: side * 490, y: y + (i - (children.length - 1) / 2) * 52 }));
+    });
+    return nodes;
+  }
+
+  function taskMapDocument(nodes) {
+    const record = n => ({ id: n.id.split(":").slice(1).join(":"), text: n.kind === "branch" ? n.detail : n.label, state: n.state, source: n.source, updatedAt: n.updatedAt || null });
+    return { schemaVersion: 1, revision: 1, coreTask: record(nodes[0]), branches: nodes.filter(n => n.kind === "branch").map(n => ({ ...record(n), label: n.label, children: nodes.filter(child => child.parent === n.id).map(child => ({ ...record(child), id: child.id.split(":").slice(2, -1).join(":") })) })) };
+  }
+
+  function syncTaskMapProgress(document, live) {
+    if (!live) return document;
+    const update = (node, incoming) => {
+      if (!incoming || !["unknown", "pending", "in-progress", "done", "blocked", "cancelled"].includes(incoming.state) || !incoming.source || !Number.isFinite(Date.parse(incoming.updatedAt))) return node;
+      if (Date.parse(incoming.updatedAt) < Date.parse(node.updatedAt || "")) return node;
+      return { ...node, state: incoming.state, source: compactThreadText(incoming.source, 180), updatedAt: incoming.updatedAt };
+    };
+    const branches = (document.branches || []).map(branch => {
+      const incoming = (Array.isArray(live.branches) ? live.branches : []).find(item => item?.id === branch.id);
+      return { ...update(branch, incoming), children: (branch.children || []).map(child => update(child, (Array.isArray(incoming?.children) ? incoming.children : []).find(item => item?.id === child.id))) };
+    });
+    const next = { ...document, coreTask: update(document.coreTask, live.coreTask), branches };
+    if (JSON.stringify(next) === JSON.stringify(document)) return document;
+    return { ...next, revision: (document.revision || 0) + 1 };
+  }
+
+  function renderTaskMapSection(section, snapshot) {
+    const threadId = normalizedThreadId(snapshot.threadId);
+    section.taskMapSnapshot = snapshot;
+    if (!threadId || threadId !== normalizedThreadId(currentConversationThreadId())) {
+      section.taskMapCleanup?.();
+      section.replaceChildren();
+      delete section.dataset.threadId;
+      delete section.taskMapSignature;
+      section.setAttribute("aria-busy", "true");
+      return;
+    }
+    if (section.dataset.threadId && section.dataset.threadId !== threadId) {
+      section.taskMapCleanup?.();
+      delete section.taskMapSignature;
+    }
+    const key = "codex-workspace-enhancer:mindmap-layouts-v1";
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem(key) || "{}")[threadId]; } catch {}
+    let frozenTaskMap = saved?.mapDocument && typeof saved.mapDocument === "object" ? saved.mapDocument : null;
+    const liveMap = taskContextForSnapshot(snapshot)?.taskMap;
+    if (frozenTaskMap) frozenTaskMap = syncTaskMapProgress(frozenTaskMap, liveMap);
+    const nodes = taskMapModel(snapshot, frozenTaskMap);
+    const signature = JSON.stringify([threadId, nodes.map(n => ({ id: n.id, parent: n.parent || null, label: n.label, detail: n.detail || "", state: n.state, source: n.source, updatedAt: n.updatedAt, x: n.x, y: n.y }))]);
+    if (section.taskMapSignature === signature) return;
+    if (section.dataset.threadId === threadId && section.taskMapDragging) return;
+    section.taskMapCleanup?.();
+    section.dataset.threadId = threadId;
+    if (frozenTaskMap) {
+      try { const store = JSON.parse(localStorage.getItem(key) || "{}"); store[threadId] = { ...(store[threadId] || {}), mapDocument: frozenTaskMap }; localStorage.setItem(key, JSON.stringify(store)); } catch {}
+    }
+    section.taskMapSignature = signature;
+    section.setAttribute("aria-busy", "true");
+    const mapDocument = frozenTaskMap || taskMapDocument(nodes);
+    const overrides = { ...(saved?.overrides || {}) };
+    const customNodes = Array.isArray(saved?.customNodes) ? saved.customNodes : [];
+    for (const raw of customNodes.slice(0, 20)) {
+      if (!raw?.id || nodes.some((node) => node.id === raw.id) || !nodes.some((node) => node.id === (raw.parent || "core"))) continue;
+      nodes.push({ id: String(raw.id), parent: raw.parent || "core", kind: "leaf", custom: true, label: compactThreadText(raw.label, 180) || "未命名节点", detail: compactThreadText(raw.detail, 240), state: ["done", "in-progress", "pending", "blocked", "cancelled", "unknown"].includes(raw.state) ? raw.state : "pending", source: "本地编辑", updatedAt: raw.updatedAt || new Date().toISOString(), x: Number.isFinite(raw.x) ? raw.x : 490, y: Number.isFinite(raw.y) ? raw.y : 0 });
+    }
+    const finitePoint = (v) => v && Number.isFinite(v.x) && Number.isFinite(v.y);
+    for (const n of nodes) {
+      const p = saved?.nodes?.[n.id];
+      n.initial = { x: n.x, y: n.y };
+      if (finitePoint(p)) { n.x = p.x; n.y = p.y; }
+      const override = overrides[n.id];
+      if (override && typeof override === "object") {
+        if (typeof override.label === "string" && override.label.trim()) n.label = compactThreadText(override.label, 180);
+        if (typeof override.detail === "string") n.detail = compactThreadText(override.detail, 240);
+        if (["done", "in-progress", "pending", "blocked", "cancelled", "unknown"].includes(override.state)) n.state = override.state;
+        n.source = override.source || "本地编辑";
+        n.updatedAt = override.updatedAt || n.updatedAt;
+      }
+    }
+    let view = finitePoint(saved?.view) && Number.isFinite(saved.view.k) ? { ...saved.view, k: Math.min(2.4, Math.max(.15, saved.view.k)) } : null;
+    let active = true;
+    let drag = null;
+    let saveTimer = null;
+    let selected = "core";
+    const current = () => active && !destroyed && section.isConnected && section.dataset.threadId === threadId && normalizedThreadId(currentConversationThreadId()) === threadId;
+    const label = (v) => ({ done: "已完成", "in-progress": "进行中", pending: "待处理", blocked: "阻塞", cancelled: "已取消", unknown: "未知" }[v] || "未知");
+    const html = (tag, className, content) => {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (content) el.textContent = content;
+      return el;
+    };
+    const svg = (tag, attrs = {}) => {
+      const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      return el;
+    };
+    const toolbar = html("div", "codex-map-toolbar");
+    const canvas = svg("svg", { class: "codex-map-viewport", tabindex: "0", role: "group", "aria-label": "任务思维导图。拖动节点调整位置，拖动空白平移，滚轮缩放。方向键移动选中节点。" });
+    const world = svg("g", { "data-map-world": "" });
+    const links = svg("g", { "aria-hidden": "true" });
+    world.append(links);
+    canvas.append(world);
+    const info = html("div", "codex-map-info");
+    const infoTitle = html("strong");
+    const infoText = html("div");
+    const infoMeta = html("small");
+    const infoAction = html("button", "codex-map-info-action", "定位到线程内容");
+    infoAction.type = "button";
+    info.append(infoTitle, infoText, infoMeta, infoAction);
+    const counts = Object.fromEntries(["done", "in-progress", "pending", "blocked"].map((value) => [value, nodes.filter((node) => node.state === value).length]));
+    const summary = html("div", "codex-map-summary");
+    summary.append(html("span", "", `节点 ${nodes.length}`), html("span", "done", `已完成 ${counts.done}`), html("span", "in-progress", `进行中 ${counts["in-progress"]}`), html("span", "pending", `待处理 ${counts.pending}`), html("span", "blocked", `阻塞 ${counts.blocked}`));
+    const help = html("div", "codex-map-help", "核心任务图（手动维护）· 拖动节点 · 空白处平移 · 滚轮缩放 · 双击或 F2 编辑");
+    const outline = html("details", "codex-map-outline");
+    outline.append(html("summary", "", "文字大纲"));
+    const list = html("ul");
+    const lists = new Map();
+    for (const n of nodes) {
+      const item = html("li", "", `${n.label} · ${label(n.state)}`);
+      const children = html("ul");
+      item.append(children);
+      (lists.get(n.parent) || list).append(item);
+      lists.set(n.id, children);
+    }
+    outline.append(list);
+    const edges = [];
+    const elements = new Map();
+    for (const n of nodes) {
+      const chars = Array.from(n.label);
+      const max = n.kind === "core" ? 12 : 14;
+      const rows = [];
+      for (let i = 0; i < Math.min(chars.length, max * 3); i += max) rows.push(chars.slice(i, i + max).join(""));
+      if (chars.length > max * 3) rows[2] += "…";
+      if (n.kind !== "core" && n.detail) {
+        const detail = Array.from(compactThreadText(n.detail, 42));
+        rows.push(detail.slice(0, max).join("") + (detail.length > max ? "…" : ""));
+      }
+      const font = n.kind === "core" ? 20 : n.kind === "branch" ? 18 : 16;
+      const longest = Math.max(...rows.map(r => Array.from(r).reduce((sum, c) => sum + (/[^\x00-\xff]/.test(c) ? 1 : .58), 0)));
+      n.width = Math.max(72, longest * font + 34);
+      n.height = rows.length * 24 + 14;
+      const group = svg("g", { class: "codex-map-node", "data-node-id": n.id, "data-kind": n.kind, "data-state": n.state, tabindex: "0", role: "button", "aria-label": `${n.label}，${label(n.state)}。方向键移动`, "aria-pressed": "false" });
+      const title = svg("title");
+      title.textContent = n.label;
+      group.append(title, svg("rect", { class: "codex-map-hit", x: -n.width / 2, y: -n.height / 2, width: n.width, height: n.height, rx: n.kind === "core" ? 22 : 5 }));
+      group.append(svg("circle", { cx: -n.width / 2 + 9, cy: 0, r: 4.5 }));
+      const text = svg("text", { "text-anchor": "middle", "aria-hidden": "true" });
+      rows.forEach((row, i) => { const span = svg("tspan", { x: 6, y: (i - (rows.length - 1) / 2) * 24 + 6 }); span.textContent = row; text.append(span); });
+      group.append(text);
+      world.append(group);
+      elements.set(n.id, group);
+      group.onclick = () => { if (current()) select(n.id); };
+      group.ondblclick = event => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!current()) return;
+        const value = window.prompt("修改节点标题", n.label);
+        if (!value?.trim()) return;
+        n.label = compactThreadText(value.trim(), 180);
+        if (n.kind !== "core") {
+          const detail = window.prompt("修改节点摘要（可留空）", n.detail || "");
+          if (detail !== null) n.detail = compactThreadText(detail, 240);
+        }
+        n.updatedAt = new Date().toISOString();
+        overrides[n.id] = { ...(overrides[n.id] || {}), label: n.label, detail: n.detail || "", source: "本地编辑", updatedAt: n.updatedAt };
+        section.taskMapCleanup?.();
+        section.taskMapSignature = "";
+        renderTaskMapSection(section, snapshot);
+      };
+      if (n.parent) {
+        const path = svg("path", { class: "codex-map-link", "data-to": n.id });
+        links.append(path);
+        edges.push({ path, parent: nodes.find(p => p.id === n.parent), child: n });
+      }
+    }
+    const zoomOutput = html("output", "", "100%");
+    const stateSelect = document.createElement("select");
+    stateSelect.className = "codex-map-state-select";
+    stateSelect.title = "设置选中节点状态";
+    stateSelect.setAttribute("aria-label", "设置选中节点状态");
+    for (const value of ["unknown", "pending", "in-progress", "done", "blocked", "cancelled"]) { const option = document.createElement("option"); option.value = value; option.textContent = label(value); stateSelect.append(option); }
+    stateSelect.onchange = () => {
+      const node = nodes.find((item) => item.id === selected);
+      if (!node || !current()) return;
+      node.state = stateSelect.value;
+      overrides[node.id] = { ...(overrides[node.id] || {}), state: node.state, source: "本地编辑", updatedAt: new Date().toISOString() };
+      section.taskMapCleanup?.();
+      section.taskMapSignature = "";
+      renderTaskMapSection(section, snapshot);
+    };
+    function save() {
+      clearTimeout(saveTimer);
+      if (!current() || !view) return;
+      try {
+        let store = JSON.parse(localStorage.getItem(key) || "{}");
+        if (!store || typeof store !== "object" || Array.isArray(store)) store = {};
+        store[threadId] = { mapDocument: store[threadId]?.mapDocument || mapDocument, nodes: Object.fromEntries(nodes.map(n => [n.id, { x: n.x, y: n.y }])), customNodes: nodes.filter(n => n.custom).map(n => ({ id: n.id, parent: n.parent, label: n.label, detail: n.detail || "", state: n.state, x: n.x, y: n.y, updatedAt: n.updatedAt })), overrides, view, updatedAt: Date.now() };
+        const recent = Object.entries(store).sort((a, b) => (b[1]?.updatedAt || 0) - (a[1]?.updatedAt || 0)).slice(0, 40);
+        localStorage.setItem(key, JSON.stringify(Object.fromEntries(recent)));
+      } catch { help.textContent = "本次布局未保存；仍可拖动、平移和缩放。"; }
+    }
+    function paint() {
+      if (!view) return;
+      world.setAttribute("transform", `translate(${view.x} ${view.y}) scale(${view.k})`);
+      canvas.dataset.scale = view.k;
+      for (const n of nodes) elements.get(n.id).setAttribute("transform", `translate(${n.x} ${n.y})`);
+      for (const { path, parent: a, child: b } of edges) {
+        const side = b.x >= a.x ? 1 : -1;
+        const x1 = a.x + side * a.width / 2;
+        const x2 = b.x - side * b.width / 2;
+        const bend = Math.max(40, Math.abs(x2 - x1) * .5);
+        path.setAttribute("d", `M ${x1} ${a.y} C ${x1 + side * bend} ${a.y}, ${x2 - side * bend} ${b.y}, ${x2} ${b.y}`);
+      }
+      zoomOutput.textContent = `${Math.round(view.k * 100)}%`;
+    }
+    function fit() {
+      const r = canvas.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const minX = Math.min(...nodes.map(n => n.x - n.width / 2));
+      const maxX = Math.max(...nodes.map(n => n.x + n.width / 2));
+      const minY = Math.min(...nodes.map(n => n.y - n.height / 2));
+      const maxY = Math.max(...nodes.map(n => n.y + n.height / 2));
+      const k = Math.min(1.15, (r.width - 40) / (maxX - minX), (r.height - 60) / (maxY - minY));
+      view = { x: r.width / 2 - (minX + maxX) / 2 * k, y: r.height / 2 - (minY + maxY) / 2 * k, k: Math.max(.15, k) };
+      paint();
+    }
+    function select(id) {
+      selected = id;
+      const n = nodes.find(n => n.id === id);
+      for (const [key, el] of elements) el.setAttribute("aria-pressed", String(key === id));
+      infoTitle.textContent = n.label;
+      infoText.textContent = n.detail || "";
+      infoMeta.textContent = `${label(n.state)} · 来源：${n.source} · ${n.updatedAt ? new Date(n.updatedAt).toLocaleString() : "更新时间未知"}`;
+      stateSelect.value = n.state;
+      stateSelect.disabled = n.id === "core";
+      infoAction.disabled = false;
+      infoAction.onclick = () => {
+        if (!current()) return;
+        taskRailTab = "context";
+        ensureThreadOverviewRail();
+        const rail = section.closest(`#${THREAD_OVERVIEW_RAIL_ID}`);
+        const target = rail?.querySelector("[data-codex-task-context-extras]");
+        target?.scrollIntoView({ behavior: "auto", block: "start" });
+      };
+    }
+    function zoom(factor, x, y) {
+      if (!view || !current()) return;
+      const k = Math.min(2.4, Math.max(.15, view.k * factor));
+      view.x = x - (x - view.x) * k / view.k;
+      view.y = y - (y - view.y) * k / view.k;
+      view.k = k;
+      paint();
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(save, 150);
+    }
+    function button(action, text, title, run) {
+      const b = html("button", "", text);
+      b.type = "button"; b.title = title; b.setAttribute("aria-label", title); b.dataset.mapAction = action;
+      b.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); if (current()) run(b); });
+      toolbar.append(b);
+      return b;
+    }
+    button("out", "−", "缩小", () => zoom(1 / 1.2, canvas.clientWidth / 2, canvas.clientHeight / 2));
+    toolbar.append(zoomOutput);
+    button("in", "+", "放大", () => zoom(1.2, canvas.clientWidth / 2, canvas.clientHeight / 2));
+    button("fit", "适应", "适应画布", () => { fit(); save(); });
+    button("reset", "整理", "恢复初始布局", () => { for (const n of nodes) Object.assign(n, n.initial); fit(); save(); });
+    button("sync", "同步", "同步已记录的进度，保留手动计划", () => {
+      section.taskMapCleanup?.();
+      section.taskMapSignature = "";
+      renderTaskMapSection(section, section.taskMapSnapshot || snapshot);
+    });
+    button("add", "添加", "添加一个自定义节点", () => {
+      if (nodes.filter(n => n.custom).length >= 20) { help.textContent = "每个任务最多添加 20 个自定义节点。"; return; }
+      const value = window.prompt("节点内容");
+      if (!value?.trim()) return;
+      const parent = nodes.some((n) => n.id === selected) ? selected : "core";
+      section.taskMapCleanup?.();
+      let store = {};
+      try { store = JSON.parse(localStorage.getItem(key) || "{}"); } catch {}
+      const entry = store[threadId] || {};
+      const id = `custom:${Date.now().toString(36)}`;
+      entry.customNodes = [...(Array.isArray(entry.customNodes) ? entry.customNodes : []), { id, parent, label: compactThreadText(value.trim(), 180), state: "pending", x: parent === "core" ? 490 : 735, y: 0, updatedAt: new Date().toISOString() }];
+      store[threadId] = entry;
+      localStorage.setItem(key, JSON.stringify(store));
+      section.taskMapSignature = "";
+      renderTaskMapSection(section, snapshot);
+    });
+    toolbar.append(stateSelect);
+    button("delete", "删除", "删除选中的自定义节点", () => {
+      const node = nodes.find((n) => n.id === selected);
+      if (!node?.custom || !window.confirm("删除这个自定义节点？")) return;
+      let store = {};
+      section.taskMapCleanup?.();
+      try { store = JSON.parse(localStorage.getItem(key) || "{}"); } catch {}
+      const entry = store[threadId] || {};
+      const removed = new Set([node.id]);
+      for (const item of entry.customNodes || []) if (removed.has(item.parent)) removed.add(item.id);
+      entry.customNodes = (entry.customNodes || []).filter((item) => !removed.has(item.id));
+      for (const id of removed) delete entry.overrides?.[id];
+      store[threadId] = entry;
+      localStorage.setItem(key, JSON.stringify(store));
+      section.taskMapSignature = "";
+      renderTaskMapSection(section, snapshot);
+    });
+    button("export", "导出", "导出当前线程思维导图", () => {
+      const payload = { schemaVersion: 1, threadId, title: snapshot.title || "", exportedAt: new Date().toISOString(), coreTask: nodes.find((n) => n.id === "core")?.label || "", mapDocument, view, nodes: nodes.map((n) => ({ id: n.id, parent: n.parent || null, label: n.label, detail: n.detail || "", state: n.state, source: n.source, updatedAt: n.updatedAt || null, x: n.x, y: n.y })) };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = `thread-task-map-${threadId}.json`; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    });
+    const rail = section.closest(`#${THREAD_OVERVIEW_RAIL_ID}`);
+    const expand = button("expand", rail?.dataset.mapExpanded === "true" ? "收起画布" : "展开画布", "切换宽画布", b => {
+      rail.dataset.mapExpanded = String(rail.dataset.mapExpanded !== "true");
+      b.textContent = rail.dataset.mapExpanded === "true" ? "收起画布" : "展开画布";
+      b.setAttribute("aria-pressed", rail.dataset.mapExpanded);
+      fit(); save();
+    });
+    expand.setAttribute("aria-pressed", String(rail?.dataset.mapExpanded === "true"));
+    canvas.onpointerdown = event => {
+      if (event.button !== 0 || !current() || !view) return;
+      event.preventDefault();
+      const target = event.target.closest("[data-node-id]");
+      const node = target ? nodes.find(n => n.id === target.dataset.nodeId) : null;
+      if (node) { select(node.id); target.focus({ preventScroll: true }); } else canvas.focus({ preventScroll: true });
+      drag = { id: event.pointerId, node, x: event.clientX, y: event.clientY, start: node ? { x: node.x, y: node.y } : { x: view.x, y: view.y } };
+      section.taskMapDragging = true;
+      canvas.dataset.dragging = "true";
+      canvas.setPointerCapture(event.pointerId);
+    };
+    canvas.onpointermove = event => {
+      if (!drag || drag.id !== event.pointerId || !current()) return;
+      const scale = drag.node ? view.k : 1;
+      const target = drag.node || view;
+      target.x = drag.start.x + (event.clientX - drag.x) / scale;
+      target.y = drag.start.y + (event.clientY - drag.y) / scale;
+      paint();
+    };
+    const finish = event => {
+      if (!drag || drag.id !== event.pointerId) return;
+      drag = null; section.taskMapDragging = false; canvas.dataset.dragging = "false";
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      save();
+    };
+    canvas.onpointerup = finish;
+    canvas.onpointercancel = finish;
+    canvas.onlostpointercapture = finish;
+    canvas.addEventListener("wheel", event => {
+      if (!current()) return;
+      event.preventDefault();
+      const r = canvas.getBoundingClientRect();
+      zoom(Math.exp(-event.deltaY * .0015), event.clientX - r.x, event.clientY - r.y);
+    }, { passive: false });
+    canvas.onfocusin = event => { const node = event.target.closest("[data-node-id]"); if (node && current()) select(node.dataset.nodeId); };
+    canvas.onkeydown = event => {
+      if (!current() || !view) return;
+      const target = event.target.closest("[data-node-id]");
+      const node = target ? nodes.find(n => n.id === target.dataset.nodeId) : null;
+      const directions = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+      if (directions[event.key]) {
+        event.preventDefault(); event.stopPropagation();
+        const point = node || view;
+        const step = event.shiftKey ? 30 : 10;
+        point.x += directions[event.key][0] * step; point.y += directions[event.key][1] * step;
+        paint(); save();
+      } else if (event.key === "Enter" && node) { event.preventDefault(); select(node.id); }
+      else if (event.key === "F2" && node) { elements.get(node.id).ondblclick(event); }
+      else if (event.key === "Home") { event.preventDefault(); fit(); save(); }
+      else if (event.key === "+" || event.key === "=" || event.key === "-") { event.preventDefault(); zoom(event.key === "-" ? 1 / 1.2 : 1.2, canvas.clientWidth / 2, canvas.clientHeight / 2); }
+    };
+    section.replaceChildren(toolbar, summary, canvas, info, help, outline);
+    select(selected);
+    if (view) paint(); else fit();
+    save();
+    const resize = new ResizeObserver(() => { if (current() && !view) fit(); });
+    resize.observe(canvas);
+    section.taskMapCleanup = () => {
+      save(); active = false; drag = null; section.taskMapDragging = false;
+      clearTimeout(saveTimer); resize.disconnect();
+    };
+    section.setAttribute("aria-busy", "false");
+  }
   function renderThreadOverviewRail(rail, snapshot) {
     const companyMode = document.documentElement.getAttribute(COMPANY_WORKBENCH_MODE_ATTR) === "true";
     const taskShell = isTaskShell();
@@ -5215,6 +5703,10 @@
     rail.dataset.taskPane = taskShell ? taskRailTab : "context";
     rail.querySelector("[data-codex-task-rail-tabs]").hidden = !taskShell;
     rail.querySelectorAll("[data-task-rail-tab]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.taskRailTab === taskRailTab)));
+    const map = rail.querySelector("[data-codex-task-map]");
+    map.hidden = !taskShell || taskRailTab !== "map" || overviewCollapsed;
+    if (!map.hidden) renderTaskMapSection(map, snapshot);
+    else { map.taskMapCleanup?.(); delete map.taskMapSignature; }
     const skills = rail.querySelector("[data-codex-task-skills]");
     skills.hidden = !taskShell || taskRailTab !== "skills";
     if (!skills.hidden) renderTaskSkillsSection(skills, snapshot);
@@ -5366,6 +5858,7 @@
     if (!snapshot || !host?.querySelector("[data-app-action-timeline-scroll]") || nativePanelVisible) {
       const docked = document.querySelector(`#${THREAD_OVERVIEW_RAIL_ID} #${ASSET_CONSOLE_PANEL_ID}`);
       if (docked) closeAssetConsolePanel({ notify: true, focusTarget: "none", destroy: true });
+      document.getElementById(THREAD_OVERVIEW_RAIL_ID)?.querySelector("[data-codex-task-map]")?.taskMapCleanup?.();
       document.getElementById(THREAD_OVERVIEW_RAIL_ID)?.remove();
       return;
     }
@@ -5374,6 +5867,7 @@
       if (rail.querySelector(`#${ASSET_CONSOLE_PANEL_ID}`)) {
         closeAssetConsolePanel({ notify: true, focusTarget: "none", destroy: true });
       }
+      rail?.querySelector("[data-codex-task-map]")?.taskMapCleanup?.();
       rail?.remove();
       rail = null;
     }
@@ -6417,6 +6911,7 @@
       subtree: true,
       attributes: true,
       attributeFilter: [
+        "data-above-composer-conversation-id",
         "data-state",
         "aria-expanded",
         "aria-current",
@@ -6449,6 +6944,7 @@
     document.getElementById(STYLE_ID)?.remove();
     document.getElementById(TOGGLE_ID)?.remove();
     document.getElementById(USAGE_ID)?.remove();
+    document.getElementById(THREAD_OVERVIEW_RAIL_ID)?.querySelector("[data-codex-task-map]")?.taskMapCleanup?.();
     document.getElementById(THREAD_OVERVIEW_RAIL_ID)?.remove();
     clearHomeProjectShelf();
     clearShortcutEnhancement();
