@@ -49,7 +49,7 @@ try {
     $source = Join-Path $repoRoot $relative
     if (Test-Path -LiteralPath $source) { Copy-Tree $source (Join-Path $frontendRoot $relative) }
   }
-  foreach ($relative in @('asset-console', 'inject', 'lib', 'scripts', 'windows', 'templates', 'docs')) {
+  foreach ($relative in @('asset-console', 'assets', 'inject', 'lib', 'scripts', 'windows', 'templates', 'docs')) {
     Copy-Tree (Join-Path $repoRoot $relative) (Join-Path $frontendRoot $relative)
   }
   Copy-Backend (Join-Path $frontendRoot 'asset-browser')

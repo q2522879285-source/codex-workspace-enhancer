@@ -1,65 +1,34 @@
 ---
 name: codex-workspace-enhancer
-description: Audit, install, adapt, or extend a Codex desktop workspace enhancement that keeps the native sidebar usable while adding searchable task recall, truthful usage status, and an embedded local Asset Console. Use for Codex sidebar UI, task-card workflows, in-app local asset management, Windows packaging, performance repair, safe rollback, or porting this reference implementation to another machine or platform.
+description: Install, inspect, configure, repair, or extend the Codex desktop workspace enhancement with task recall, a per-thread task map, Skill selection, embedded browsing, and local assets. Use for this enhancement's Windows package and adapter work, not for ordinary task naming or general file management.
 ---
 
 # Codex Workspace Enhancer
 
-Turn Codex into a continuous task-and-asset workspace without replacing its native information architecture. Keep the method portable; treat the bundled Windows runtime as a reference adapter, not as the product definition.
+Keep Codex's native conversation, sidebar, projects, and composer in control. This package supplies a Windows reference runtime; other platforms require their own validated adapter. It has no dependency on private Skills.
 
-## Route the request
+## Choose the working scope
 
-1. Run `scripts/inspect.ps1` for install, repair, or compatibility work.
-2. Choose one scope:
-   - **Audit/UI:** inspect native structure first; read `references/interaction-model.md` and `references/acceptance-checklist.md`.
-   - **Thread Map:** read `references/thread-task-map.md` for the per-task durable plan, editing boundaries, and validation.
-   - **Install/update:** run `scripts/install-bundled.ps1 -WhatIf` first, then rerun without `-WhatIf` after reviewing the plan.
-   - **Port/adapt:** read `references/architecture.md` and `references/adapter-contract.md`; replace only the platform adapter.
-3. Preserve user data and native Codex controls. Add capability around them; do not recreate the whole sidebar as an overlay.
-4. Run `scripts/verify.ps1` after any runtime change. Treat failed safety or task-context checks as blockers.
+Run paths below from this Skill directory. In the source repository, runtime files live at the repository root; in the Skill release, inspect them inside `assets/runtime/codex-sidebar-enhancer-windows.zip` after extracting to a temporary directory. Do not modify the manifest-verified bundle in place.
 
-## Non-negotiable behavior
+- **Inspect/install/update:** read [installation.md](references/installation.md), run `scripts/inspect.ps1`, review `scripts/install-bundled.ps1 -WhatIf`, then install only within the user's authorized scope. Run `scripts/verify.ps1` against the actual install/state paths.
+- **Task recall, layout or map:** read [interaction-model.md](references/interaction-model.md), [global-work-map.md](references/global-work-map.md), [thread-task-map.md](references/thread-task-map.md), and the relevant sections of [acceptance-checklist.md](references/acceptance-checklist.md).
+- **Embedded browser, local assets, cloud library, account/usage or Tibo signals:** read [optional-surfaces.md](references/optional-surfaces.md) and their relevant acceptance checks. Existing service/account configuration is a prerequisite, not something installation silently supplies.
+- **Port or extend:** read [architecture.md](references/architecture.md) and [adapter-contract.md](references/adapter-contract.md). Report missing adapter capabilities; do not claim untested platform support.
+- **Opt-in task naming/grouping:** read [task-organization.md](references/task-organization.md). This is an assistant workflow using native tools, not a watcher feature. Installing the runtime does not enable it.
 
-- Keep fixed shortcuts and tabs in normal layout flow; scrolling content must begin below them with no visual cover layer.
-- Synchronize the weekly usage display from the latest valid Codex rate-limit event. Never fabricate a percentage.
-- Open Asset Console inside the current Codex task. Do not launch a second visible app window.
-- Refresh the embedded task context when the active task changes; invalidate the old iframe/session.
-- Keep each task map bound to one normalized task ID. Context refreshes must not replace its saved core plan or manual edits.
-- Map edits change only enhancer-owned derived data, never the native conversation or composer. Show source and unknown states instead of guessing progress.
-- Use a free-position, keyboard-reachable mind map with a text outline; keep expansion inside the current Codex window and restore the original layout on collapse.
-- Return selected assets to the current composer as absolute local paths only. Never submit or send automatically.
-- Route registered generated images and videos by their originating task/project; unresolved generated media may enter Pending Review, but ordinary Downloads must remain untouched.
-- Require a direct asset ID, exact filename, or direct file attachment before claiming a browser download. Never guess ownership from the next same-kind file.
-- Support folder navigation, create, rename, move, undo, and project-level automatic organization.
-- Keep destructive actions secondary and explicit. "Discard" must not imply deleting source files.
-- Use bounded caches, lazy media loading, request generations, reduced-motion-safe busy states, and stale-response guards.
-- Restrict local proxy access to the dedicated asset frame/session and tear it down on close.
-- Preserve configuration, ledgers, projects, and assets across install/update/rollback.
+## Shared invariants
 
-## Bundled Windows reference
+- Preserve user configuration, ledgers, projects, media, notes, manual titles, and native controls. Keep fixed controls in normal layout flow above scrolling content.
+- Bind task context and map reads/writes to the current task and request generation. Ignore late responses; never show task A's data as task B's.
+- Keep map node text, states, references, and layout as derived editable data, not copied conversation history. Preserve manual edits on source refresh; editing a node never sends a message.
+- Display actual current rate-limit state and unknown when unavailable. Account reset estimates are not confirmed account events.
+- Return explicit absolute local paths to the composer; selecting a Skill or asset never submits a message. A user-initiated quick-chat send is a separate explicit action.
+- Keep local asset proxy access limited to its dedicated frame/session. Keep API tokens out of page JavaScript, source packages, and logs.
+- Use registered generation provenance for capture/routing. Ordinary Downloads and same-project files are not evidence of task ownership.
+- Filesystem mutations remain explicit and scoped. Preserve protected project content; cleanup touches only owned cache roots. Rollback restores owned runtime files, not arbitrary project directories.
+- Startup completion follows application readiness with explicit timeout fallbacks, not only a fixed cosmetic delay. Respect reduced motion and make loading/error states inspectable.
 
-The skill includes a reviewed snapshot of the sidebar enhancer and its local AssetBrowser service under `assets/runtime/`. It contains no personal project configuration, media, task history, or credentials.
+## Completion evidence
 
-Install or update the reference implementation:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-bundled.ps1 -WhatIf
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-bundled.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1
-```
-
-The installer only owns `%LOCALAPPDATA%\Programs\Codex Sidebar Enhancer`, `%LOCALAPPDATA%\CodexSidebarEnhancer`, with backend state in `%LOCALAPPDATA%\CodexSidebarEnhancer\asset-browser`. It preserves `asset-browser.config.json`, ledgers, and all project folders.
-
-## Adapt instead of forking the method
-
-Keep the stable workflow and acceptance rules unchanged. Implement platform differences behind the adapter contract: Codex discovery, debug transport, local-service lifecycle, shortcut creation, safe install roots, and absolute-path validation. If a required adapter capability is missing, fail closed and report the missing capability.
-
-## Final checks
-
-- Run deterministic syntax and package checks before visual review.
-- Verify source, packaged runtime, and installed runtime hashes when claiming consistency.
-- Exercise task A -> task B with Asset Console open.
-- Exercise rapid folder A -> B switching with reversed response order.
-- For task-map changes, check task isolation, stable refresh, explicit synchronization, node actions, persistence, and JSON export; distinguish deterministic checks from desktop interaction acceptance.
-- Confirm no automatic message send and no deletion outside owned paths.
-- Use independent review only for high-impact, security, data-loss or uncertain critical changes.
+Use the relevant [acceptance checks](references/acceptance-checklist.md), not all modes on every request. Run deterministic checks before desktop interaction tests. Source checks, bundle integrity, installed-file equality, service health, and observed UI behavior are separate claims. Report a missing prerequisite or failed check without implying full completion. Never install live, configure a cloud account, edit global rules/hooks, or change trust merely to validate a package.

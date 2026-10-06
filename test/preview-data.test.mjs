@@ -71,8 +71,8 @@ test("repository resolves a client-new thread by the newest matching title", asy
   const codexHome = await mkdtemp(path.join(os.tmpdir(), "codex-preview-test-"));
   const sessions = path.join(codexHome, "sessions", "2026", "08", "09");
   await mkdir(sessions, { recursive: true });
-  const oldId = "019fe61d-6a11-7cf1-926b-435b108624b5";
-  const newId = "019fe61d-6a11-7cf1-926b-435b108624b6";
+  const oldId = "00000000-0000-4000-8000-000000000003";
+  const newId = "00000000-0000-4000-8000-000000000002";
   await writeFile(path.join(sessions, `rollout-old-${oldId}.jsonl`), `${JSON.stringify({
     timestamp: "2026-08-09T09:00:00Z",
     type: "event_msg",
@@ -108,7 +108,7 @@ test("repository reads the latest real rate limit from the newest session", asyn
   const codexHome = await mkdtemp(path.join(os.tmpdir(), "codex-usage-test-"));
   const sessions = path.join(codexHome, "sessions", "2026", "08", "09");
   await mkdir(sessions, { recursive: true });
-  const threadId = "019fe61d-6a11-7cf1-926b-435b108624b6";
+  const threadId = "00000000-0000-4000-8000-000000000002";
   await writeFile(path.join(sessions, `rollout-${threadId}.jsonl`), `${JSON.stringify({
     timestamp: "2026-08-09T12:22:49Z",
     type: "event_msg",
@@ -143,8 +143,8 @@ test("usage follows the newest rate-limit event instead of stale session metadat
   const codexHome = await mkdtemp(path.join(os.tmpdir(), "codex-usage-sync-test-"));
   const sessions = path.join(codexHome, "sessions", "2026", "08", "11");
   await mkdir(sessions, { recursive: true });
-  const staleId = "019fe61d-6a11-7cf1-926b-435b108624b7";
-  const freshId = "019fe61d-6a11-7cf1-926b-435b108624b8";
+  const staleId = "00000000-0000-4000-8000-000000000004";
+  const freshId = "00000000-0000-4000-8000-000000000005";
   const stalePath = path.join(sessions, `rollout-${staleId}.jsonl`);
   const freshPath = path.join(sessions, `rollout-${freshId}.jsonl`);
   const rateEvent = (timestamp, usedPercent) => JSON.stringify({
@@ -180,8 +180,8 @@ test("usage follows the newest rate-limit event instead of stale session metadat
 
 test("repository search catalog includes every indexed thread assigned to a saved project", async () => {
   const codexHome = await mkdtemp(path.join(os.tmpdir(), "codex-search-catalog-test-"));
-  const targetId = "019f0d8f-9645-75a0-87f7-6e5cf6328ba6";
-  const unassignedId = "019f0d8f-9645-75a0-87f7-6e5cf6328ba7";
+  const targetId = "00000000-0000-4000-8000-000000000006";
+  const unassignedId = "00000000-0000-4000-8000-000000000007";
   await writeFile(path.join(codexHome, "session_index.jsonl"), [
     JSON.stringify({ id: targetId, thread_name: "旧知识卡名称", updated_at: "2026-06-27T09:00:00Z" }),
     JSON.stringify({ id: targetId, thread_name: "整理项目资料", updated_at: "2026-06-28T09:29:06Z" }),

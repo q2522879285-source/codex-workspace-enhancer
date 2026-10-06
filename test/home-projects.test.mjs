@@ -18,7 +18,7 @@ function task(overrides = {}) {
     projectId: project.id,
     title: "实现首页项目展示",
     status: "in_progress",
-    threadId: "019fe64a-ace1-7793-92aa-4d91195005ec",
+    threadId: "00000000-0000-4000-8000-000000000001",
     version: 1,
     updatedAt: "2026-08-10T03:00:00.000Z",
     ...overrides,
@@ -186,7 +186,7 @@ test("projects aggregate active task count and choose the latest routable task",
         id: "newer",
         identifier: "PROJECTA-2",
         title: "最新执行任务",
-        threadId: "019fe61d-6a11-7cf1-926b-435b108624b6",
+        threadId: "00000000-0000-4000-8000-000000000002",
         updatedAt: "2026-08-10T03:00:00.000Z",
       }),
       task({ id: "broken", identifier: "PROJECTA-3", threadId: "not-a-thread-id" }),
@@ -204,12 +204,12 @@ test("projects aggregate active task count and choose the latest routable task",
 test("thread routes reject invalid ids and normalize local prefixes", async () => {
   const { threadRoute } = await homeProjectsModule();
   assert.equal(
-    threadRoute?.("019fe64a-ace1-7793-92aa-4d91195005ec"),
-    "/local/019fe64a-ace1-7793-92aa-4d91195005ec",
+    threadRoute?.("00000000-0000-4000-8000-000000000001"),
+    "/local/00000000-0000-4000-8000-000000000001",
   );
   assert.equal(
-    threadRoute?.("local:019fe64a-ace1-7793-92aa-4d91195005ec"),
-    "/local/019fe64a-ace1-7793-92aa-4d91195005ec",
+    threadRoute?.("local:00000000-0000-4000-8000-000000000001"),
+    "/local/00000000-0000-4000-8000-000000000001",
   );
   assert.equal(threadRoute?.("not-a-thread"), null);
 });

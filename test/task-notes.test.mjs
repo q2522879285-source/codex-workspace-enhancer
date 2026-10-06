@@ -7,6 +7,7 @@ const source = readFileSync(new URL('../inject/conversation-preview.user.js', im
 const key = 'codex-workspace-enhancer:task-notes-v1';
 class Element {
   constructor(tagName) { this.tagName = tagName; }
+  dataset = {};
   children = [];
   attributes = {};
   value = '';
@@ -34,6 +35,7 @@ function fixture(initial = {}) {
   let fail = false;
   let writes = 0;
   const context = vm.createContext({
+    spaceUiText: value => value || "",
     document: { createElement: tag => new Element(tag) },
     localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => {
       if (fail) throw new Error('Storage full');

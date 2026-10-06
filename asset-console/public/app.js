@@ -659,8 +659,16 @@ async function loadCodexBinding() {
     if (index < 0) state.projects.push(data.project);
     else state.projects[index] = { ...state.projects[index], ...data.project };
   }
-  // A refresh follows the selected scope, not a default project shortcut.
-  const projectId = state.codexScope === "shared" ? state.codexSharedProject || "ai-reference-library" : state.codexBoundProject;
+  // Bound tasks open their project directly. Unbound tasks still need a useful
+  // asset view: keep the binding empty and fall back to the review inbox only
+  // for this view, so generated assets are visible without changing ownership.
+  const reviewProject = state.projects.find((item) => item.id === "pending-review" && item.exists);
+  const projectId = state.codexScope === "shared"
+    ? state.codexSharedProject || "ai-reference-library"
+    : state.codexBoundProject || reviewProject?.id || "";
+  if (!state.codexBoundProject && state.codexScope === "project" && reviewProject) {
+    state.codexWorkspaceMessage = "当前任务未绑定项目，正在显示待确认资产";
+  }
   if (state.selectedProject !== projectId) state.selectedCase = "";
   state.selectedProject = projectId;
 }

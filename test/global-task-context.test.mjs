@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { normalizeTaskId, resolveTaskContext, readTaskContext, writeJsonAtomic, taskSkillDefaultText, updateTaskSkillDefaults } from '../lib/task-context-store.mjs';
+import { normalizeTaskId, resolveTaskContext, readTaskContext, writeJsonAtomic, taskSkillDefaultText, readGlobalSkillDefaults, updateGlobalSkillDefaults } from '../lib/task-context-store.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'task-context-test-'));
 const cwd = join(root, 'project'), codexHome = join(root, 'codex');
@@ -30,7 +30,7 @@ try {
   output(a, 'UserPromptSubmit'); output(b, 'UserPromptSubmit');
   assert.match(output(a, null, 'one', {}, ['--ack']), /已登记/);
   assert.equal(output(a, 'Stop'), '');
-  assert.equal(JSON.parse(output(b, 'Stop')).decision, 'block');
+  assert.equal(output(b, 'Stop'), '');
   assert.equal(output(b, 'Stop'), '');
   output(b, 'UserPromptSubmit', 'two');
   assert.equal(output(b, 'Stop', 'one'), '');
@@ -58,39 +58,58 @@ try {
   const preserved = { ...data(a), goal: '原目标', progress: '原进展', nextStep: '原下一步',
     agreements: ['保留布局', legacyDefault], references: [{ kind: 'asset', path: skillPath, label: '参考' }] };
   writeJsonAtomic(legacy, preserved);
-  const beforeDuplicate = statSync(legacy).mtimeMs;
-  assert.deepEqual(updateTaskSkillDefaults({ ...options(a), action: 'add', entry }), preserved);
-  assert.equal(statSync(legacy).mtimeMs, beforeDuplicate);
-  updateTaskSkillDefaults({ ...options(a), action: 'remove', value: legacyDefault });
-  const added = updateTaskSkillDefaults({ ...options(a), action: 'add', entry });
-  assert.deepEqual(added.agreements, ['保留布局', text]);
-  for (const key of ['goal', 'progress', 'nextStep', 'references']) assert.deepEqual(added[key], preserved[key]);
-  const injected = JSON.parse(output(a, 'UserPromptSubmit', 'skills-added')).hookSpecificOutput.additionalContext;
-  assert.ok(injected.indexOf(text) < injected.indexOf('<task-context-data>'));
-  assert.match(injected, /用户当前任务设置/);
-  assert.doesNotMatch(output(b, 'UserPromptSubmit', 'isolated'), /测试技能/);
-  const unchanged = readFileSync(legacy, 'utf8'), unchangedTime = statSync(legacy).mtimeMs;
-  updateTaskSkillDefaults({ ...options(a), action: 'add', entry });
-  assert.equal(readFileSync(legacy, 'utf8'), unchanged);
-  assert.equal(statSync(legacy).mtimeMs, unchangedTime);
-  const removed = updateTaskSkillDefaults({ ...options(a), action: 'remove', value: text });
-  assert.deepEqual(removed.agreements, ['保留布局']);
-  assert.doesNotMatch(output(a, 'UserPromptSubmit', 'skills-removed'), /测试技能/);
-  const removedTime = statSync(legacy).mtimeMs;
-  assert.deepEqual(updateTaskSkillDefaults({ ...options(a), action: 'remove', value: text }), removed);
-  assert.equal(statSync(legacy).mtimeMs, removedTime);
-  assert.throws(() => updateTaskSkillDefaults({ ...options(a), action: 'remove', value: '保留布局' }));
-  assert.throws(() => updateTaskSkillDefaults({ ...options(a), action: 'add', entry: { ...entry, path: join(root, 'missing', 'SKILL.md') } }));
-  assert.throws(() => taskSkillDefaultText({ ...entry, path: 'SKILL.md' }));
+  const summaryBefore = readFileSync(legacy, 'utf8'), summaryTime = statSync(legacy).mtimeMs;
+  const globalFile = join(codexHome, 'skill-defaults.json');
+  assert.deepEqual(readGlobalSkillDefaults(codexHome), []);
+  const added = updateGlobalSkillDefaults({ codexHome, action: 'add', entry });
+  assert.deepEqual(added, [text]);
+  assert.deepEqual(readGlobalSkillDefaults(codexHome), [text]);
+  const saved = JSON.parse(readFileSync(globalFile, 'utf8'));
+  assert.ok(Number.isFinite(Date.parse(saved.updatedAt)));
+  assert.deepEqual(saved.defaults, [text]);
   const c = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
   const pc = resolveTaskContext(options(c));
-  updateTaskSkillDefaults({ ...options(c), action: 'remove', value: text });
+  for (const id of [a, b, c]) {
+    const injected = JSON.parse(output(id, 'UserPromptSubmit', 'skills-added')).hookSpecificOutput.additionalContext;
+    assert.match(injected, /用户全局默认设置/);
+    assert.ok(injected.includes(text));
+    assert.ok(!injected.includes(legacyDefault));
+    if (injected.includes('<task-context-data>')) {
+      assert.ok(injected.indexOf(text) < injected.indexOf('<task-context-data>'));
+      assert.ok(!injected.split('<task-context-data>')[1].includes(text));
+    }
+  }
   assert.equal(existsSync(pc.summaryPath), false);
-  const created = updateTaskSkillDefaults({ ...options(c), action: 'add', entry });
-  assert.equal(created.goal, '');
-  assert.deepEqual(readTaskContext(options(c)).data.agreements, [text]);
-  writeFileSync(pc.summaryPath, '{broken');
-  assert.throws(() => updateTaskSkillDefaults({ ...options(c), action: 'add', entry }));
-  assert.equal(readFileSync(pc.summaryPath, 'utf8'), '{broken');
+  assert.equal(output(c, 'Stop', 'skills-added'), '');
+  output(a, 'UserPromptSubmit', 'global-write-only');
+  const stateBefore = readFileSync(pa.statePath, 'utf8');
+  const unchanged = readFileSync(globalFile, 'utf8'), unchangedTime = statSync(globalFile).mtimeMs;
+  assert.deepEqual(updateGlobalSkillDefaults({ codexHome, action: 'add', entry }), [text]);
+  assert.deepEqual(updateGlobalSkillDefaults({ codexHome, action: 'add', entry: { ...entry, title: '新标题' } }), [text]);
+  assert.equal(readFileSync(globalFile, 'utf8'), unchanged);
+  assert.equal(statSync(globalFile).mtimeMs, unchangedTime);
+  assert.deepEqual(updateGlobalSkillDefaults({ codexHome, action: 'remove', value: text }), []);
+  assert.equal(readFileSync(pa.statePath, 'utf8'), stateBefore);
+  assert.equal(readFileSync(legacy, 'utf8'), summaryBefore);
+  assert.equal(statSync(legacy).mtimeMs, summaryTime);
+  assert.equal(output(a, 'Stop', 'global-write-only'), '');
+  for (const id of [a, b, c]) {
+    const injected = output(id, 'UserPromptSubmit', 'skills-removed');
+    assert.ok(!injected.includes(text));
+    assert.ok(!injected.includes(legacyDefault));
+  }
+  const removedTime = statSync(globalFile).mtimeMs;
+  assert.deepEqual(updateGlobalSkillDefaults({ codexHome, action: 'remove', value: text }), []);
+  assert.equal(statSync(globalFile).mtimeMs, removedTime);
+  assert.throws(() => updateGlobalSkillDefaults({ codexHome, action: 'remove', value: '保留布局' }));
+  assert.throws(() => updateGlobalSkillDefaults({ codexHome, action: 'add', entry: { ...entry, path: join(root, 'missing', 'SKILL.md') } }));
+  assert.throws(() => taskSkillDefaultText({ ...entry, path: 'SKILL.md' }));
+  for (const content of ['{broken', 'null', '[]', '{}', JSON.stringify({ defaults: [42] })]) {
+    writeFileSync(globalFile, content);
+    assert.throws(() => readGlobalSkillDefaults(codexHome));
+    assert.throws(() => updateGlobalSkillDefaults({ codexHome, action: 'add', entry }));
+    assert.throws(() => updateGlobalSkillDefaults({ codexHome, action: 'remove', value: text }));
+    assert.equal(readFileSync(globalFile, 'utf8'), content);
+  }
   console.log('global task context checks passed');
 } finally { rmSync(root, { recursive: true, force: true }); }

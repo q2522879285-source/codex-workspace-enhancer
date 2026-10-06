@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { closeSync, existsSync, openSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -8,14 +8,19 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 
-import { connectMainCodex, readTargets, selectMainCodexTarget } from "./cdp-client.mjs";
+import { CdpClient, connectMainCodex, readTargets, selectMainCodexTarget } from "./cdp-client.mjs";
 import { assetBrowserRuntime, ensureAssetBrowserState } from "../lib/install-config.mjs";
 import { PreviewRepository } from "../lib/preview-data.mjs";
+import { ColdHistoryStore } from "../lib/cold-history-store.mjs";
+import { normalizeTaskId, updateSkillDefaults } from "../lib/task-context-store.mjs";
 import { presentCardPreview } from "../lib/card-view.mjs";
 import { presentRateLimit } from "../lib/usage-data.mjs";
-import { normalizeTaskId, updateTaskSkillDefaults } from "../lib/task-context-store.mjs";
+import { closeNativeRateLimits, readNativeRateLimits } from "../lib/native-rate-limits.mjs";
+import { mergeTiboUsage, readTiboPublicSignal } from "../lib/tibo-public-feed.mjs";
 import { needsPreviewAttachment } from "../lib/injector-state.mjs";
 import { buildHomeProjectShelf, readTaskboardSnapshot } from "../lib/home-projects.mjs";
+import { AccountProfileStore } from "../lib/account-profiles.mjs";
+import { TaskMapIndex } from "../lib/cortexdb-task-map.mjs";
 import {
   ASSET_CONSOLE_EMBED_ORIGIN,
   assetConsoleEmbedPrefix,
@@ -31,30 +36,43 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = path.join(root, "inject", "conversation-preview.user.js");
 const SCRIPT_ID_GLOBAL = "__CODEX_CONVERSATION_PREVIEW_SCRIPT_IDENTIFIER__";
-const DEFAULT_SKILLS_BINDING = "codexSidebarDefaultSkills";
 const ASSET_CONSOLE_BINDING = "codexSidebarOpenAssetConsole";
+const COLD_HISTORY_BINDING = "codexSidebarColdHistory";
+const DEFAULT_SKILLS_BINDING = "codexSidebarDefaultSkills";
+const TASK_CATALOG_BINDING = "codexSidebarTaskCatalog";
+const TASK_MAP_INDEX_BINDING = "codexSidebarTaskMapIndex";
+const ACCOUNT_PROFILES_BINDING = "codexSidebarAccountProfiles";
+const REFRESH_THREAD_TOKEN_BINDING = "codexSidebarRefreshThreadToken";
+const MOKE_OAUTH_BINDING = "codexSidebarMokeOAuth";
+const STARTUP_VIDEO_BINDING = "codexSidebarStartupVideo";
+const startupStateDir = process.platform === "win32" && process.env.LOCALAPPDATA
+  ? path.join(process.env.LOCALAPPDATA, "CodexSidebarEnhancer")
+  : path.join(root, "work");
+const startupSettingsPath = path.join(startupStateDir, "startup-settings.json");
+const startupVideoDir = path.join(startupStateDir, "startup-videos");
+const startupVideoExtensions = new Set([".mp4", ".m4v", ".wmv", ".avi", ".mov", ".mkv", ".webm"]);
 const assetRuntime = assetBrowserRuntime({ installDir: root });
 await ensureAssetBrowserState(assetRuntime);
 const assetConsoleRoot = assetRuntime.sourceRoot;
 const assetConsoleServer = assetRuntime.serverPath;
 const assetConsoleApiTokenPath = assetRuntime.tokenPath;
-let enhancerConfig = {};
-try { enhancerConfig = JSON.parse(await readFile(path.join(root, "enhancer.config.json"), "utf8")); } catch (error) {
-  if (error.code !== "ENOENT") console.error(`UI configuration could not be read: ${error.message}`);
-}
 const assetConsoleUrl = "http://127.0.0.1:5177/";
 const embeddedAssetConsoleRoot = path.join(root, "asset-console", "public");
+const accountProfileStore = new AccountProfileStore();
+const taskMapIndex = new TaskMapIndex();
+process.once("exit", () => taskMapIndex.close());
 const embeddedAssetConsoleFiles = new Map([
   ["/", { name: "index.html", type: "text/html; charset=utf-8" }],
   ["/index.html", { name: "index.html", type: "text/html; charset=utf-8" }],
   ["/app.js", { name: "app.js", type: "text/javascript; charset=utf-8" }],
-  ["/styles.css", { name: "styles.css", type: "text/css; charset=utf-8" }],
   ["/ui-v3.css", { name: "ui-v3.css", type: "text/css; charset=utf-8" }],
 ]);
+
 async function embeddedAssetConsoleResponse(route, method, panelKind = "asset", body = null) {
   let pathname;
   try { pathname = new URL(route, assetConsoleUrl).pathname; } catch { return null; }
-  if (panelKind !== "asset" || method !== "GET") return null;
+
+  if (method !== "GET") return null;
   const files = embeddedAssetConsoleFiles;
   const staticRoot = embeddedAssetConsoleRoot;
   const file = files.get(pathname);
@@ -79,6 +97,107 @@ function parseArgs(argv) {
   return options;
 }
 
+const defaultStartupSettings = () => ({
+  enabled: true,
+  mode: "random",
+  selectedVideo: "",
+  customVideos: [],
+});
+
+function normalizeStartupSettings(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    enabled: source.enabled !== false,
+    mode: source.mode === "specific" ? "specific" : "random",
+    selectedVideo: typeof source.selectedVideo === "string" ? source.selectedVideo : "",
+    customVideos: Array.isArray(source.customVideos)
+      ? source.customVideos.filter((item) => item && typeof item === "object" && typeof item.file === "string")
+        .map((item) => ({
+          id: typeof item.id === "string" && item.id ? item.id : item.file,
+          name: typeof item.name === "string" && item.name ? item.name : path.parse(item.file).name,
+          file: path.basename(item.file),
+        }))
+      : [],
+  };
+}
+
+async function readStartupSettings() {
+  try { return normalizeStartupSettings(JSON.parse(await readFile(startupSettingsPath, "utf8"))); }
+  catch (error) { if (error.code !== "ENOENT") process.stderr.write(`Startup settings: ${error.message}\n`); return defaultStartupSettings(); }
+}
+
+async function writeStartupSettings(value) {
+  const settings = normalizeStartupSettings(value);
+  await mkdir(startupStateDir, { recursive: true });
+  await writeFile(startupSettingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  return settings;
+}
+
+async function readStartupVideoConfig() {
+  const settings = await readStartupSettings();
+  const videos = [];
+  const builtinNames = {
+    "startup-animation.mp4": "01 · 霓光汇聚",
+    "startup-animation-02.mp4": "02 · 心跳脉冲",
+    "startup-animation-03.mp4": "03 · 橙白旋转",
+  };
+  const assetRoot = path.join(root, "assets");
+  let names = [];
+  try { names = await readdir(assetRoot); } catch {}
+  for (const file of names.filter((name) => /^startup-.*\.mp4$/i.test(name))
+    .sort((a, b) => (builtinNames[a] || a).localeCompare(builtinNames[b] || b, "zh-CN"))) {
+    videos.push({ id: file, name: builtinNames[file] || path.parse(file).name, source: "builtin" });
+  }
+  for (const item of settings.customVideos) {
+    const file = path.basename(item.file);
+    if (!startupVideoExtensions.has(path.extname(file).toLowerCase())) continue;
+    if (!existsSync(path.join(startupVideoDir, file))) continue;
+    videos.push({ id: item.id, name: item.name, source: "custom" });
+  }
+  return { ...settings, videos };
+}
+
+let startupVideoWriteQueue = Promise.resolve();
+
+async function handleStartupVideoBinding(payload) {
+  let message;
+  try { message = JSON.parse(payload || "{}"); } catch { return; }
+  const requestId = typeof message.requestId === "string" ? message.requestId : null;
+  if (!["read", "update", "add", "remove"].includes(message.action)) return;
+  const target = client;
+  const result = { requestId };
+  startupVideoWriteQueue = startupVideoWriteQueue.then(async () => {
+    try {
+      let settings = await readStartupSettings();
+      if (message.action === "update") {
+        settings = await writeStartupSettings({ ...settings, ...message.settings });
+      } else if (message.action === "add") {
+        const name = typeof message.name === "string" ? message.name.trim() : "";
+        const data = typeof message.data === "string" ? message.data : "";
+        if (!name || !data) throw new Error("视频文件为空");
+        const extension = path.extname(name).toLowerCase() || ".mp4";
+        if (!startupVideoExtensions.has(extension)) throw new Error("只支持常见视频格式");
+        const safeBase = (path.basename(name, extension).replace(/[^\w\-\u4e00-\u9fff]+/g, "-").replace(/^-+|-+$/g, "") || "startup-video").slice(0, 80);
+        const file = `custom-${Date.now()}-${safeBase}${extension}`;
+        await mkdir(startupVideoDir, { recursive: true });
+        await writeFile(path.join(startupVideoDir, file), Buffer.from(data, "base64"));
+        const item = { id: file, name: path.basename(name, extension), file };
+        settings = await writeStartupSettings({ ...settings, customVideos: [...settings.customVideos, item] });
+      } else if (message.action === "remove") {
+        const id = typeof message.id === "string" ? message.id : "";
+        const item = settings.customVideos.find((candidate) => candidate.id === id);
+        if (item) {
+          settings = await writeStartupSettings({ ...settings, customVideos: settings.customVideos.filter((candidate) => candidate.id !== id) });
+          try { await unlink(path.join(startupVideoDir, path.basename(item.file))); } catch {}
+        }
+      }
+      result.data = await readStartupVideoConfig();
+    } catch (error) { result.error = error.message || "启动视频设置保存失败"; }
+    if (client === target) await target.evaluate(`window.__codexConversationPreviewInjection__?.setStartupVideoConfig?.(${JSON.stringify(result)})`).catch(() => {});
+  }).catch(() => {});
+  await startupVideoWriteQueue;
+}
+
 async function targetId(port) {
   try {
     return selectMainCodexTarget(await readTargets(port))?.id || null;
@@ -87,19 +206,226 @@ async function targetId(port) {
   }
 }
 
+async function waitForCodexHomeStable(cdp, {
+  timeoutMs = 20_000,
+  stableMs = 1_200,
+  pollMs = 150,
+} = {}) {
+  const signatureExpression = `(() => {
+    const visible = (node) => {
+      if (!node) return null;
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      if (rect.width < 1 || rect.height < 1 || style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) return null;
+      return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
+    };
+    if (document.readyState !== "complete") return null;
+    const main = [...document.querySelectorAll("main")].map(visible).find(Boolean);
+    const nav = visible(document.querySelector('nav[aria-label="首页"]'));
+    const textbox = visible(document.querySelector('[role="textbox"][aria-label="随心输入"]'));
+    const newChat = visible(document.querySelector('button[aria-label="打开新对话"], button[aria-label="新对话"]'));
+    if (!main || !nav || !textbox || !newChat) return null;
+    return JSON.stringify({
+      main,
+      nav,
+      textbox,
+      newChat,
+    });
+  })()`;
+  const deadline = Date.now() + timeoutMs;
+  let previous = null;
+  let unchangedSince = 0;
+  while (Date.now() < deadline) {
+    const signature = await cdp.evaluate(signatureExpression).catch(() => null);
+    if (signature && signature === previous && Date.now() - unchangedSince >= stableMs) return true;
+    if (signature !== previous) {
+      previous = signature;
+      unchangedSince = signature ? Date.now() : 0;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  return false;
+}
+
 const options = parseArgs(process.argv.slice(2));
 const repository = new PreviewRepository();
+let enhancerConfig = { skills: {} };
+try { enhancerConfig = JSON.parse(await readFile(path.join(root, "enhancer.config.json"), "utf8")); }
+catch (error) { if (error.code !== "ENOENT") throw error; }
+const coldHistory = new ColdHistoryStore({
+  codexHome: repository.codexHome,
+  archiveRoot: enhancerConfig.coldHistory?.archiveRoot,
+  indexScript: path.join(root, "scripts", "cold_history.py"),
+});
+let lastColdHistoryTick = 0;
+let coldHistoryTick = null;
+let removeColdHistoryListener = null;
+let lastNativeSidebarRefreshAt = 0;
+
+function tickColdHistory() {
+  if (coldHistoryTick || Date.now() - lastColdHistoryTick < 60_000) return;
+  lastColdHistoryTick = Date.now();
+  coldHistoryTick = coldHistory.tick().catch(error => {
+    process.stderr.write(`Cold history: ${error.message}\n`);
+  }).finally(() => { coldHistoryTick = null; });
+}
+
+async function handleTaskCatalogBinding(payload) {
+  let message;
+  try { message = JSON.parse(payload); } catch { return; }
+  if (typeof message?.requestId !== "string" || message.requestId.length > 100) return;
+  const target = client;
+  const result = { requestId: message.requestId };
+  try { result.data = repository.listThreads(message.options); }
+  catch { result.error = "本机任务目录读取失败，请重试。"; }
+  if (client === target) await target.evaluate(`window.__codexConversationPreviewInjection__?.setTaskCatalog?.(${JSON.stringify(result)})`);
+}
+
+async function handleTaskMapIndexBinding(payload) {
+  let message;
+  try { message = JSON.parse(payload); } catch { return; }
+  if (typeof message?.requestId !== "string" || message.requestId.length > 100) return;
+  if (!["sync", "search", "graph"].includes(message.action)) return;
+  const target = client;
+  const result = { requestId: message.requestId };
+  try {
+    result.data = message.action === "sync"
+      ? await taskMapIndex.sync(message.data)
+      : message.action === "graph"
+        ? await taskMapIndex.graph()
+        : await taskMapIndex.search(message.options);
+  } catch (error) { result.error = `CortexDB：${error.message || "检索索引暂不可用"}`; }
+  if (client === target) await target.evaluate(`window.__codexConversationPreviewInjection__?.setTaskCatalog?.(${JSON.stringify(result)})`);
+}
+
+async function handleAccountProfilesBinding(payload) {
+  let message;
+  try { message = JSON.parse(payload); } catch { return; }
+  if (!['list', 'sync', 'upsert', 'switch'].includes(message?.action)) return;
+  const result = { requestId: typeof message.requestId === 'string' ? message.requestId : null };
+  try {
+    if (message.action === 'list' || message.action === 'sync') result.data = accountProfileStore.list();
+    else if (message.action === 'upsert') result.data = { profile: accountProfileStore.upsert(message.profile) };
+    else {
+      const profile = accountProfileStore.profile(message.id);
+      if (!profile) throw Error('账号 profile 不存在');
+      const accountId = await client.evaluate(`(async () => {
+        const tokens = ${JSON.stringify(profile.tokens)};
+        const expectedEmail = ${JSON.stringify(profile.email || null)};
+        const expectedPlan = ${JSON.stringify(profile.planType || profile.plan_type || null)};
+        const planType = ${JSON.stringify(profile.planType || profile.plan_type || null)};
+        const bridge = window.electronBridge?.sendMessageFromView;
+        if (typeof bridge !== "function") throw new Error("MCP bridge unavailable");
+        const call = (method, params) => new Promise((resolve, reject) => {
+          const id = crypto.randomUUID();
+          let timer;
+          const cleanup = () => { clearTimeout(timer); window.removeEventListener("message", onMessage); };
+          const onMessage = (event) => {
+            const message = event.data;
+            if (message?.type !== "mcp-response" || message.hostId !== "local" || message.message?.id !== id) return;
+            cleanup();
+            const response = message.message;
+            if (response.error) reject(new Error(response.error.message || String(response.error)));
+            else resolve(response.result);
+          };
+          window.addEventListener("message", onMessage);
+          timer = setTimeout(() => { cleanup(); reject(new Error("MCP request timed out: " + method)); }, 15000);
+          Promise.resolve(bridge({ type: "mcp-request", hostId: "local", request: { id, method, params }, source: "account-switch" })).catch((error) => { cleanup(); reject(error); });
+        });
+        await call("account/login/start", { type: "chatgptAuthTokens", accessToken: tokens.access_token, chatgptAccountId: tokens.account_id, chatgptPlanType: planType });
+        const account = await call("account/read", {});
+        const current = account?.account || account;
+        if (current?.type !== "chatgpt") throw new Error("账号切换校验失败");
+        if (expectedEmail && current.email && current.email !== expectedEmail) throw new Error("账号切换校验失败");
+        if (expectedPlan && current.planType && current.planType !== expectedPlan) throw new Error("账号切换校验失败");
+        return true;
+      })()`);
+      if (accountId !== true) throw Error('账号切换校验失败');
+      result.data = { profile: accountProfileStore.persist(profile) };
+    }
+  } catch (error) { result.error = error.message; }
+  // The store deliberately strips tokens before returning data to the renderer.
+  await client?.evaluate(`window.__codexConversationPreviewInjection__?.setAccountProfiles?.(${JSON.stringify(result)})`);
+}
+
+async function handleRefreshThreadTokenBinding(payload) {
+  let message;
+  try { message = JSON.parse(payload); } catch { return; }
+  const threadId = normalizeTaskId(message?.threadId);
+  if (!threadId) return;
+  const target = client;
+  const active = await target.evaluate("window.__codexConversationPreviewInjection__?.getColdHistoryThreadId?.() || ''").catch(() => '');
+  if (active !== threadId) return;
+  const overview = await repository.readOverview(threadId).catch(() => null);
+  if (client !== target) return;
+  const current = await target.evaluate("window.__codexConversationPreviewInjection__?.getColdHistoryThreadId?.() || ''").catch(() => '');
+  if (current !== threadId) return;
+  if (overview) await target.evaluate(`window.__codexConversationPreviewInjection__?.setThreadOverview?.(${JSON.stringify(overview)})`);
+}
+
+async function handleDefaultSkillsBinding(payload) {
+  let message;
+  try { message = JSON.parse(payload); } catch { return; }
+  const threadId = normalizeTaskId(message?.threadId);
+  if (!threadId || typeof message.requestId !== 'string' || !['add', 'remove'].includes(message.action)) return;
+  const target = client;
+  const result = { threadId, requestId: message.requestId, scope: message.scope || 'global' };
+  try {
+    const active = await target.evaluate("window.__codexConversationPreviewInjection__?.getDefaultSkillsTask?.() || null");
+    if (active?.threadId !== threadId) return;
+    const entry = message.action === 'add'
+      ? active.entries?.find(item => item.path === message.entry?.path && item.name === message.entry?.name && item.enabled !== false)
+      : null;
+    if (message.action === 'add' && !entry) throw Error('技能目录已变化，请刷新后选择。');
+    const overview = await repository.readOverview(threadId);
+    const current = await target.evaluate("window.__codexConversationPreviewInjection__?.getDefaultSkillsTask?.() || null");
+    if (client !== target || current?.threadId !== threadId) return;
+    Object.assign(result, updateSkillDefaults({ codexHome: repository.codexHome, threadId, cwd: overview?.cwd,
+      scope: result.scope, projectId: message.projectId, action: message.action, entry, value: message.value }));
+  } catch (error) { result.error = error.message; }
+  await target.evaluate(`window.__codexConversationPreviewInjection__?.setSkillDefaults?.(${JSON.stringify(result)})`);
+}
+
+async function handleColdHistoryBinding(payload) {
+  let message;
+  try { message = JSON.parse(payload); } catch { return; }
+  if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(message?.threadId || "")) return;
+  if (!['archive', 'toggle'].includes(message.action)) return;
+  // Only the selected task's native renderer controls can request a snapshot.
+  const activeId = await client.evaluate("window.__codexConversationPreviewInjection__?.getColdHistoryThreadId?.() || ''");
+  if (activeId !== message.threadId) return;
+  let status;
+  try {
+    if (message.action === 'toggle') {
+      if (typeof message.enabled !== 'boolean') return;
+      await coldHistory.setEnabled(message.enabled);
+    } else {
+      await coldHistory.request(message.threadId);
+      lastColdHistoryTick = 0;
+      tickColdHistory();
+    }
+    status = await coldHistory.getStatus(message.threadId);
+  } catch (error) {
+    status = { threadId: message.threadId, state: 'error', message: error.message };
+  }
+  await client?.evaluate(`window.__codexConversationPreviewInjection__?.setColdHistory?.(${JSON.stringify(status)})`);
+}
 
 let stopped = false;
 let attachedTargetId = null;
 let client = null;
 let registeredScriptIdentifier = null;
 let removeBindingListener = null;
-let removeDefaultSkillsListener = null;
+let removeMokeOAuthListener = null;
+let mokeOAuthProcess = null;
 let assetConsoleProxy = null;
 let assetConsoleProxyQueue = Promise.resolve();
 let assetConsoleStartPromise = null;
 let assetConsoleRequestGeneration = 0;
+let lastExternalAccountSyncAt = 0;
+let externalAccountSyncPromise = null;
+const syncedExternalAccountTokens = new Set();
+const externalAddAccountTargetIds = new Set();
 const MAX_BUFFERED_ASSET_CONSOLE_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_ASSET_CONSOLE_MEDIA_RANGE_BYTES = 8 * 1024 * 1024;
 
@@ -186,8 +512,8 @@ async function ensureAssetConsoleServer() {
   }
   if (!assetConsoleStartPromise) {
     assetConsoleStartPromise = (async () => {
-      const stdoutPath = path.join(assetRuntime.stateRoot, "asset-browser.stdout.log");
-      const stderrPath = path.join(assetRuntime.stateRoot, "asset-browser.stderr.log");
+      const stdoutPath = path.join(assetConsoleRoot, "asset-browser.stdout.log");
+      const stderrPath = path.join(assetConsoleRoot, "asset-browser.stderr.log");
       let stdoutFd;
       let stderrFd;
       try {
@@ -487,33 +813,12 @@ async function teardownAssetConsoleProxy() {
   });
 }
 
-async function handleDefaultSkillsBinding(payload) {
-  let message;
-  try { message = JSON.parse(payload); } catch { return; }
-  const threadId = normalizeTaskId(message?.threadId);
-  if (!threadId || typeof message.requestId !== 'string' || !['add', 'remove'].includes(message.action)) return;
-  const target = client;
-  const result = { threadId, requestId: message.requestId };
-  try {
-    const active = await target.evaluate("window.__codexConversationPreviewInjection__?.getDefaultSkillsTask?.() || null");
-    if (active?.threadId !== threadId) return;
-    const entry = message.action === 'add'
-      ? active.entries?.find(item => item.path === message.entry?.path && item.name === message.entry?.name && item.enabled !== false)
-      : null;
-    if (message.action === 'add' && !entry) throw Error('技能目录已变化，请刷新后选择。');
-    const cwd = repository.overviewCache.get(threadId)?.cwd;
-    if (!cwd) throw Error('当前任务目录暂不可用，请稍后重试。');
-    result.data = updateTaskSkillDefaults({ threadId, cwd, codexHome: repository.codexHome, action: message.action, entry, value: message.value });
-  } catch (error) { result.error = error.message; }
-  await target.evaluate(`window.__codexConversationPreviewInjection__?.setSkillDefaults?.(${JSON.stringify(result)})`);
-}
-
-
 async function handleAssetConsoleBinding(payload) {
   let message = {};
   try { message = JSON.parse(payload || "{}"); } catch {}
-  const panelKind = message.panel === "operations" ? "operations" : "asset";
-  const panelLabel = panelKind === "operations" ? "专项运营" : "资产控制台";
+  if (message.panel && message.panel !== "asset") return;
+  const panelKind = "asset";
+  const panelLabel = "资产控制台";
   const generation = ++assetConsoleRequestGeneration;
   if (message.action === "close") {
     await teardownAssetConsoleProxy();
@@ -554,32 +859,112 @@ async function handleAssetConsoleBinding(payload) {
   }
 }
 
+function sendMokeOAuthResult(target, result) {
+  if (!target || target !== client) return;
+  target.evaluate(`window.__codexConversationPreviewInjection__?.setMokeOAuth?.(${JSON.stringify(result)})`).catch(() => {});
+}
+
+function handleMokeOAuthBinding(payload) {
+  let message;
+  try { message = JSON.parse(payload); } catch { return; }
+  if (message?.action !== "start" || typeof message.requestId !== "string") return;
+  const target = client;
+  if (mokeOAuthProcess) {
+    sendMokeOAuthResult(target, { requestId: message.requestId, state: "error", message: "已有 MOKE 授权流程进行中，请完成当前登录后重试。" });
+    return;
+  }
+  const scopes = ["openid", "skill:read", "prompt:read", "offline_access"];
+  let buffer = "";
+  let authUrlSent = false;
+  let settled = false;
+  const emit = (result) => sendMokeOAuthResult(target, { requestId: message.requestId, ...result });
+  const child = spawn(process.env.CODEX_CLI_BIN || "codex.exe", [
+    "mcp", "login", "moke", "--no-browser", "--scopes", scopes.join(","),
+  ], {
+    windowsHide: true,
+    // Keep stdin open so --no-browser waits for the HTTP callback, not EOF.
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env },
+  });
+  mokeOAuthProcess = child;
+  const readOutput = (chunk) => {
+    buffer = `${buffer}${String(chunk)}`.slice(-16_384);
+    const match = buffer.match(/https:\/\/oss\.mokeaigc\.ai\/oidc\/auth\?[^\s"'<>]+/);
+    if (!match || authUrlSent) return;
+    const authUrl = match[0].replace(/[),.;]+$/, "");
+    try { new URL(authUrl); } catch { return; }
+    authUrlSent = true;
+    emit({ state: "authorization_required", authUrl });
+  };
+  child.stdout?.on("data", readOutput);
+  child.stderr?.on("data", readOutput);
+  child.once("error", (error) => {
+    if (settled) return;
+    settled = true;
+    if (mokeOAuthProcess === child) mokeOAuthProcess = null;
+    emit({ state: "error", message: error?.message || "MOKE 授权进程启动失败。" });
+  });
+  child.once("close", (code, signal) => {
+    if (settled) return;
+    settled = true;
+    if (mokeOAuthProcess === child) mokeOAuthProcess = null;
+    if (code === 0) emit({ state: "completed" });
+    else emit({ state: "error", message: authUrlSent ? "MOKE 授权未完成，请返回后重试。" : "无法启动 MOKE 授权流程。", code, signal });
+  });
+}
 async function bindAssetConsole({ resetBinding = true } = {}) {
   if (resetBinding) {
     removeBindingListener?.();
     removeBindingListener = null;
-    removeDefaultSkillsListener?.();
-    removeDefaultSkillsListener = null;
+    removeColdHistoryListener?.();
+    removeColdHistoryListener = null;
+    removeMokeOAuthListener?.();
+    removeMokeOAuthListener = null;
   }
-  if (!removeDefaultSkillsListener) {
+  const assetAvailable = Boolean(assetConsoleServer && existsSync(assetConsoleServer));
+  if (!removeColdHistoryListener) {
     await client.send("Runtime.enable");
+    try { await client.send("Runtime.removeBinding", { name: COLD_HISTORY_BINDING }); } catch {}
+    await client.send("Runtime.addBinding", { name: COLD_HISTORY_BINDING });
     try { await client.send("Runtime.removeBinding", { name: DEFAULT_SKILLS_BINDING }); } catch {}
     await client.send("Runtime.addBinding", { name: DEFAULT_SKILLS_BINDING });
-    removeDefaultSkillsListener = client.on("Runtime.bindingCalled", ({ name, payload, executionContextId }) => {
-      if (name !== DEFAULT_SKILLS_BINDING) return;
-      const target = client;
-      target.send("Runtime.evaluate", {
+    try { await client.send("Runtime.removeBinding", { name: TASK_CATALOG_BINDING }); } catch {}
+    await client.send("Runtime.addBinding", { name: TASK_CATALOG_BINDING });
+    try { await client.send("Runtime.removeBinding", { name: TASK_MAP_INDEX_BINDING }); } catch {}
+    await client.send("Runtime.addBinding", { name: TASK_MAP_INDEX_BINDING });
+    try { await client.send("Runtime.removeBinding", { name: ACCOUNT_PROFILES_BINDING }); } catch {}
+    await client.send("Runtime.addBinding", { name: ACCOUNT_PROFILES_BINDING });
+    try { await client.send("Runtime.removeBinding", { name: REFRESH_THREAD_TOKEN_BINDING }); } catch {}
+    await client.send("Runtime.addBinding", { name: REFRESH_THREAD_TOKEN_BINDING });
+    try { await client.send("Runtime.removeBinding", { name: MOKE_OAUTH_BINDING }); } catch {}
+    await client.send("Runtime.addBinding", { name: MOKE_OAUTH_BINDING });
+    try { await client.send("Runtime.removeBinding", { name: STARTUP_VIDEO_BINDING }); } catch {}
+    await client.send("Runtime.addBinding", { name: STARTUP_VIDEO_BINDING });
+    removeColdHistoryListener = client.on("Runtime.bindingCalled", ({ name, payload, executionContextId }) => {
+      if (![COLD_HISTORY_BINDING, DEFAULT_SKILLS_BINDING, TASK_CATALOG_BINDING, TASK_MAP_INDEX_BINDING, ACCOUNT_PROFILES_BINDING, REFRESH_THREAD_TOKEN_BINDING, STARTUP_VIDEO_BINDING].includes(name)) return;
+      // A binding is visible in subframes too; admit only the native top-level app.
+      client.send('Runtime.evaluate', {
         contextId: executionContextId,
         expression: "window === window.top && location.protocol === 'app:'",
         returnByValue: true,
       }).then(result => {
-        if (client === target && result.result?.value === true) return handleDefaultSkillsBinding(payload);
+        if (result.result?.value === true) return name === TASK_MAP_INDEX_BINDING ? handleTaskMapIndexBinding(payload) : name === STARTUP_VIDEO_BINDING ? handleStartupVideoBinding(payload) : name === REFRESH_THREAD_TOKEN_BINDING ? handleRefreshThreadTokenBinding(payload) : name === TASK_CATALOG_BINDING ? handleTaskCatalogBinding(payload) : name === DEFAULT_SKILLS_BINDING
+          ? handleDefaultSkillsBinding(payload) : name === ACCOUNT_PROFILES_BINDING
+            ? handleAccountProfilesBinding(payload) : handleColdHistoryBinding(payload);
+      }).catch(() => {});
+    });
+    removeMokeOAuthListener = client.on("Runtime.bindingCalled", ({ name, payload, executionContextId }) => {
+      if (name !== MOKE_OAUTH_BINDING) return;
+      client.send("Runtime.evaluate", {
+        contextId: executionContextId,
+        expression: "window === window.top && location.protocol === 'app:'",
+        returnByValue: true,
+      }).then(result => {
+        if (result.result?.value === true) handleMokeOAuthBinding(payload);
       }).catch(() => {});
     });
   }
-  const assetAvailable = Boolean(assetConsoleServer && existsSync(assetConsoleServer));
-  const operationsAvailable = false;
-  if ((assetAvailable || operationsAvailable) && (resetBinding || !removeBindingListener)) {
+  if (assetAvailable && (resetBinding || !removeBindingListener)) {
     await client.send("Runtime.enable");
     try { await client.send("Runtime.removeBinding", { name: ASSET_CONSOLE_BINDING }); } catch {}
     await client.send("Runtime.addBinding", { name: ASSET_CONSOLE_BINDING });
@@ -588,12 +973,13 @@ async function bindAssetConsole({ resetBinding = true } = {}) {
     });
   }
   await client.evaluate(`window.__codexConversationPreviewInjection__?.setAssetConsole?.(${JSON.stringify({
-    available: assetAvailable || operationsAvailable,
+    available: assetAvailable,
     assetAvailable,
-    operationsAvailable,
+
     label: "资产控制台",
     mode: "embedded",
   })})`);
+  await client.evaluate(`window.__codexConversationPreviewInjection__?.setStartupVideoConfig?.(${JSON.stringify({ data: await readStartupVideoConfig() })})`);
 }
 
 async function attach() {
@@ -605,9 +991,15 @@ async function attach() {
     await teardownAssetConsoleProxy();
     client?.close();
     client = await connectMainCodex(options.port);
+    client.requestTimeoutMs = 30_000;
     removeBindingListener = null;
-    removeDefaultSkillsListener?.();
-    removeDefaultSkillsListener = null;
+    removeColdHistoryListener = null;
+    removeMokeOAuthListener?.();
+    removeMokeOAuthListener = null;
+    if (mokeOAuthProcess) {
+      try { mokeOAuthProcess.kill(); } catch {}
+      mokeOAuthProcess = null;
+    }
     registeredScriptIdentifier = null;
   }
 
@@ -616,11 +1008,30 @@ async function attach() {
   if (oldIdentifier) {
     try { await client.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: oldIdentifier }); } catch {}
   }
-  const userSource = `window.__CODEX_ENHANCER_CONFIG__ = ${JSON.stringify({ skills: enhancerConfig.skills || {} })};\n${await readFile(sourcePath, "utf8")}`;
+  const injectDir = sourcePath.slice(0, Math.max(0, sourcePath.lastIndexOf("\\") + 1) || sourcePath.lastIndexOf("/") + 1);
+  const mapSource = await readFile(`${injectDir}global-task-map.js`, "utf8").catch((error) => {
+    if (error.code === "ENOENT") return "";
+    throw error;
+  });
+  const previewSource = await readFile(sourcePath, "utf8");
+  const browserSource = await readFile(`${injectDir}global-browser.js`, "utf8");
+  const bundledSource = mapSource === previewSource && browserSource === previewSource
+    ? previewSource
+    : `${mapSource}\n;\n${browserSource}\n;\n${previewSource}`;
+  const userSource = `window.__CODEX_ENHANCER_CONFIG__ = ${JSON.stringify({ ...enhancerConfig, skills: enhancerConfig.skills || {} })};\n${bundledSource}`;
   const sourceHash = createHash("sha256").update(userSource).digest("hex");
-  const markedSource = `${userSource}\n;window.__CODEX_CONVERSATION_PREVIEW_SOURCE_HASH__ = ${JSON.stringify(sourceHash)};`;
+  const markedSource = `${userSource}\n;window.__CODEX_CONVERSATION_PREVIEW_SOURCE_HASH__ = ${JSON.stringify(sourceHash)};\n;window.__CODEX_CDP_CSP_BYPASS__ = true;`;
   const registered = await client.send("Page.addScriptToEvaluateOnNewDocument", { source: markedSource });
   registeredScriptIdentifier = registered.identifier;
+  // The global browser panel talks to the local CDP proxy from the app renderer.
+  // Codex's renderer CSP blocks localhost, so bypass it once for this renderer.
+  // Do not reload the renderer here: the launcher is already waiting for the
+  // real Codex target, and a forced reload exposes the native splash screen
+  // and causes the home page to paint a second time during startup.
+  const cdpCspReady = await client.evaluate("window.__CODEX_CDP_CSP_BYPASS__ === true").catch(() => false);
+  if (!cdpCspReady) {
+    await client.send("Page.setBypassCSP", { enabled: true });
+  }
   const sourceAlreadyActive = await client.evaluate(`Boolean(
     window.__codexConversationPreviewInjection__
     && document.getElementById("codex-conversation-preview-style")
@@ -630,12 +1041,152 @@ async function attach() {
   await client.evaluate(`window[${JSON.stringify(SCRIPT_ID_GLOBAL)}] = ${JSON.stringify(registered.identifier)}`);
   await bindAssetConsole();
   attachedTargetId = nextTargetId;
-  process.stdout.write(`Codex conversation preview attached to renderer ${nextTargetId}\n`);
   return true;
+}
+
+function isExternalAddAccountTarget(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "chatgpt.com" && !parsed.hostname.endsWith(".chatgpt.com")) return false;
+    return parsed.pathname === "/auth/login"
+      || parsed.searchParams.get("account_switch_login") === "add_account"
+      || parsed.searchParams.get("next")?.includes("account_switch_login=add_account") === true;
+  } catch {
+    return false;
+  }
+}
+
+function isExternalAuthTarget(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return host === "chatgpt.com"
+      || host.endsWith(".chatgpt.com")
+      || host === "auth.openai.com"
+      || host.endsWith(".auth.openai.com")
+      || host === "accounts.google.com"
+      || host === "login.microsoftonline.com"
+      || host === "appleid.apple.com";
+  } catch {
+    return false;
+  }
+}
+
+function isChatGptTarget(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "chatgpt.com" || host.endsWith(".chatgpt.com");
+  } catch {
+    return false;
+  }
+}
+
+async function readExternalAccountSession(target) {
+  const external = new CdpClient(target.webSocketDebuggerUrl, {
+    connectTimeoutMs: 1_000,
+    requestTimeoutMs: 5_000,
+  });
+  try {
+    await external.connect();
+    return await external.evaluate(`(async () => {
+      try {
+        const response = await fetch("/api/auth/session", {
+          cache: "no-store",
+          credentials: "include",
+          headers: {
+            "X-OpenAI-Target-Path": "/api/auth/session",
+            "X-OpenAI-Target-Route": "/api/auth/session",
+          },
+        });
+        if (!response.ok) return null;
+        const payload = await response.json().catch(() => null);
+        if (!payload || typeof payload.sessionToken !== "string" || payload.sessionToken.length < 8) return null;
+        return {
+          sessionToken: payload.sessionToken,
+          authProvider: payload.authProvider ?? null,
+          user: payload.user && typeof payload.user === "object" ? {
+            id: typeof payload.user.id === "string" ? payload.user.id : null,
+            email: typeof payload.user.email === "string" ? payload.user.email : null,
+            image: typeof payload.user.image === "string" ? payload.user.image : null,
+            name: typeof payload.user.name === "string" ? payload.user.name : null,
+            phone_number: typeof payload.user.phone_number === "string" ? payload.user.phone_number : null,
+          } : null,
+        };
+      } catch {
+        return null;
+      }
+    })()`);
+  } finally {
+    external.close();
+  }
+}
+
+async function syncExternalAddAccount() {
+  if (!client || Date.now() - lastExternalAccountSyncAt < 3_000) return;
+  if (externalAccountSyncPromise) return externalAccountSyncPromise;
+  lastExternalAccountSyncAt = Date.now();
+  externalAccountSyncPromise = (async () => {
+    let targets;
+    try { targets = await readTargets(options.port); } catch { return; }
+    for (const target of targets) {
+      if (target.type === "page" && target.id && isExternalAddAccountTarget(target.url)) {
+        externalAddAccountTargetIds.add(target.id);
+      }
+      // OAuth can move the login into a popup. Keep newly-created auth tabs
+      // attached to the add-account flow until they return to chatgpt.com.
+      if (target.type === "page" && target.id && externalAddAccountTargetIds.size > 0
+        && isExternalAuthTarget(target.url)) {
+        externalAddAccountTargetIds.add(target.id);
+      }
+    }
+    const candidates = targets.filter((target) => target.type === "page"
+      && target.webSocketDebuggerUrl
+      && isChatGptTarget(target.url)
+      && (externalAddAccountTargetIds.has(target.id) || isExternalAddAccountTarget(target.url)));
+    for (const target of candidates) {
+      const session = await readExternalAccountSession(target).catch(() => null);
+      const sessionToken = session?.sessionToken;
+      if (!sessionToken || syncedExternalAccountTokens.has(sessionToken) || !client) continue;
+      const result = await client.evaluate(`(() => {
+        const key = "oai/apps/accountSwitchSessions";
+        const session = ${JSON.stringify(session)};
+        let saved = [];
+        try {
+          const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+          if (Array.isArray(parsed)) saved = parsed.filter((entry) => entry && typeof entry.sessionToken === "string");
+        } catch {}
+        const next = {
+          authProvider: session.authProvider ?? null,
+          email: session.user?.email ?? null,
+          lastLoggedInAt: Date.now(),
+          name: session.user?.name ?? null,
+          phoneNumber: session.user?.phone_number ?? null,
+          sessionToken: session.sessionToken,
+          userId: session.user?.id ?? null,
+          userImageUrl: session.user?.image ?? null,
+          workspaces: [],
+        };
+        const index = saved.findIndex((entry) => entry.sessionToken === next.sessionToken);
+        if (index >= 0) saved[index] = { ...saved[index], ...next };
+        else saved.push(next);
+        localStorage.setItem(key, JSON.stringify(saved));
+        return { count: saved.length, added: index < 0 };
+      })()`);
+      syncedExternalAccountTokens.add(sessionToken);
+      externalAddAccountTargetIds.delete(target.id);
+      if (result?.added) await client.send("Page.reload", { ignoreCache: false }).catch(() => {});
+      break;
+    }
+  })().finally(() => { externalAccountSyncPromise = null; });
+  return externalAccountSyncPromise;
 }
 
 async function pushPreviews() {
   if (!client || !attachedTargetId) return;
+  if (Date.now() - lastNativeSidebarRefreshAt >= 15_000) {
+    lastNativeSidebarRefreshAt = Date.now();
+    await client.evaluate("window.__codexConversationPreviewInjection__?.refreshNativeSidebar?.() || false").catch(() => false);
+  }
   const [sidebarState, homeProjectState] = await Promise.all([
     client.evaluate(`(() => {
       const seen = new Set();
@@ -653,11 +1204,14 @@ async function pushPreviews() {
         || document.querySelector('[data-app-action-sidebar-thread-id][data-active="true"]')
         || document.querySelector('[data-app-action-sidebar-thread-id][data-app-action-sidebar-thread-active="true"]');
       const routeId = location.pathname.split('/').find((part) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(part)) || '';
-      const id = document.querySelector('[data-above-composer-conversation-id]')?.getAttribute('data-above-composer-conversation-id')
-        || document.querySelector('[data-response-annotation-conversation]')?.getAttribute('data-response-annotation-conversation')
+      // Reuse the renderer's resolver so previews, overview, assets and skills
+      // all read the same active conversation during navigation.
+      const resolved = window.__codexConversationPreviewInjection__?.getActiveThreadContext?.();
+      const id = resolved?.threadId
         || selected?.getAttribute('data-app-action-sidebar-thread-id')
         || routeId;
-      const title = selected?.getAttribute('data-app-action-sidebar-thread-title')
+      const title = resolved?.threadTitle
+        || selected?.getAttribute('data-app-action-sidebar-thread-title')
         || Array.from(document.querySelectorAll('[data-testid="app-shell-header-context-menu-surface"] button'))
           .find((button) => button.offsetParent !== null)?.textContent?.trim()
         || '';
@@ -667,15 +1221,41 @@ async function pushPreviews() {
   ]);
   const requests = Array.isArray(sidebarState?.requests) ? sidebarState.requests : [];
   const activeThread = sidebarState?.activeThread || {};
-  const [rawPreviews, rawUsage, taskboard, searchCatalog, overview] = await Promise.all([
+  tickColdHistory();
+  const coldHistoryStatus = await coldHistory.getStatus(activeThread.id);
+  const [rawPreviews, rawUsage, nativeUsage, taskboard, searchCatalog, overview, tiboSignal] = await Promise.all([
     repository.readMany(requests),
     repository.readUsage(),
+    readNativeRateLimits(),
     readTaskboardSnapshot(),
     repository.readSearchCatalog(),
     repository.readOverview(activeThread.id, activeThread.title),
+    process.env.CODEX_TIBO_FEED_URL ? readTiboPublicSignal() : Promise.resolve(null),
   ]);
   const previews = rawPreviews.map((preview) => presentCardPreview(preview));
-  const usage = presentRateLimit(rawUsage, { timeZone: "Asia/Shanghai" });
+  // Keep the overview's display fields on the same live session snapshot as
+  // the sidebar cards. The overview parser can be cached between turns while
+  // readPreview() sees the newest assistant event, which otherwise leaves the
+  // right rail one turn behind the card/floating preview.
+  const activeThreadId = normalizeTaskId(String(activeThread.id || "").replace(/^cloud:/i, ""));
+  const activePreview = activeThreadId
+    ? rawPreviews.find((preview) => normalizeTaskId(String(preview?.threadId || "").replace(/^cloud:/i, "")) === activeThreadId)
+    : null;
+  const syncedOverview = overview && activePreview
+    ? {
+        ...overview,
+        ...(activePreview.recentInput ? { currentRequest: activePreview.recentInput } : {}),
+        ...(activePreview.recentOutput ? {
+          progress: activePreview.recentOutput,
+          summary: activePreview.summary || activePreview.recentOutput,
+        } : activePreview.summary ? {
+          progress: activePreview.summary,
+          summary: activePreview.summary,
+        } : {}),
+        ...(activePreview.updatedAt ? { updatedAt: activePreview.updatedAt } : {}),
+      }
+    : overview;
+  const usage = presentRateLimit(mergeTiboUsage(nativeUsage || rawUsage, tiboSignal), {});
   const homeProjects = taskboard.available
     ? {
         available: true,
@@ -699,7 +1279,8 @@ async function pushPreviews() {
     api?.setUsage?.(${JSON.stringify(usage)});
     api?.setHomeProjects?.(${JSON.stringify(homeProjects)});
     api?.setSearchCatalog?.(${JSON.stringify(searchCatalog)});
-    api?.setThreadOverview?.(${JSON.stringify(overview)});
+    api?.setThreadOverview?.(${JSON.stringify(syncedOverview)});
+    api?.setColdHistory?.(${JSON.stringify(coldHistoryStatus)});
   })()`);
 }
 
@@ -711,8 +1292,15 @@ async function stop() {
   await teardownAssetConsoleProxy();
   removeBindingListener?.();
   removeBindingListener = null;
-  removeDefaultSkillsListener?.();
-  removeDefaultSkillsListener = null;
+  removeColdHistoryListener?.();
+  removeColdHistoryListener = null;
+  removeMokeOAuthListener?.();
+  removeMokeOAuthListener = null;
+  if (mokeOAuthProcess) {
+    try { mokeOAuthProcess.kill(); } catch {}
+    mokeOAuthProcess = null;
+  }
+  closeNativeRateLimits();
   client?.close();
 }
 
@@ -728,7 +1316,17 @@ try {
     try {
       const attached = await attach();
       if (!attached) await bindAssetConsole({ resetBinding: false });
+      await syncExternalAddAccount();
       await pushPreviews();
+      if (attached) {
+        const stable = await waitForCodexHomeStable(client);
+        process.stdout.write(
+          `Codex conversation preview attached to renderer ${attachedTargetId}\n`,
+        );
+        process.stdout.write(
+          `Codex conversation preview ready${stable ? "" : " (stability timeout fallback)"}\n`,
+        );
+      }
     } catch (error) {
       attachedTargetId = null;
       registeredScriptIdentifier = null;

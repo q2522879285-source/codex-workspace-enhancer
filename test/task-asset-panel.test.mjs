@@ -16,14 +16,14 @@ test('asset pane opens lazily and reuses its panel across tabs and collapse', ()
   let panel = null, opens = 0, syncs = 0;
   const host = { querySelector: () => panel };
   const rail = { querySelector: () => host };
-  const context = vm.createContext({
+  const context = vm.createContext({ clearTimeout() {}, setTimeout: fn => { fn(); return 1; }, assetConsoleCloseTimer: null,
     ASSET_CONSOLE_PANEL_ID: 'panel', taskRailTab: 'context', overviewCollapsed: false,
     isTaskShell: () => true,
     openAssetConsolePanel: (kind, options) => {
       assert.equal(kind, 'asset'); assert.equal(options.docked, true);
-      opens++; panel ||= {}; panel.hidden = false;
+      opens++; panel ||= { dataset: {} }; panel.hidden = false;
     },
-    syncAssetConsoleTaskContext: () => syncs++,
+    syncAssetConsoleTaskContext: () => syncs++, closeAssetConsolePanel: () => { panel.hidden = true; },
   });
   load(context, 'syncTaskAssetPanel');
   const sync = () => context.syncTaskAssetPanel(rail);
@@ -44,7 +44,7 @@ test('expand retains iframe ownership, task switches refresh, and close returns 
   const button = { setAttribute(name, value) { this[name] = value; } };
   const frame = { remove() { removed++; } };
   const host = { appendChild() { moves++; }, querySelector: () => panel };
-  const rail = { querySelector: selector => selector === '[data-task-asset-console-host]' ? host : null };
+  const rail = { dataset: {}, querySelector: selector => selector === '[data-task-asset-console-host]' ? host : null };
   const panel = {
     dataset: { consoleKind: 'asset', docked: 'true', taskContextKey: 'task-a' },
     parentElement: host, hidden: false,
@@ -52,7 +52,7 @@ test('expand retains iframe ownership, task switches refresh, and close returns 
     querySelector: selector => selector === '#frame' ? frame : button,
     closest: () => host, remove() { throw new Error('asset panel was destroyed'); },
   };
-  const context = vm.createContext({
+  const context = vm.createContext({ clearTimeout() {}, setTimeout: fn => { fn(); return 1; }, assetConsoleCloseTimer: null,
     ASSET_CONSOLE_PANEL_ID: 'panel', ASSET_CONSOLE_FRAME_ID: 'frame', THREAD_OVERVIEW_RAIL_ID: 'rail',
     COMPANY_WORKBENCH_MODE_ATTR: 'company', OVERVIEW_COLLAPSED_KEY: 'collapsed',
     taskRailTab: 'assets', overviewCollapsed: false, assetConsoleReturnFocus: null,
@@ -70,13 +70,12 @@ test('expand retains iframe ownership, task switches refresh, and close returns 
     notifyAssetConsole: (action, kind) => { notifications.push([action, kind]); return true; },
   });
   load(context, 'openAssetConsolePanel', 'updateAssetConsoleExpandButton',
-    'syncAssetConsoleTaskContext', 'closeAssetConsolePanel', 'applyCompanyRailLayout');
+    'syncAssetConsoleTaskContext', 'closeAssetConsolePanel');
   context.openAssetConsolePanel('asset', { docked: false });
   assert.equal(panel.dataset.docked, 'false'); assert.equal(button.title, '收回右栏');
   context.openAssetConsolePanel('asset', { docked: true });
   assert.equal(panel.dataset.docked, 'true'); assert.equal(button.title, '展开资产工作区');
   assert.equal(moves, 0); assert.equal(removed, 0); assert.equal(panel.querySelector('#frame'), frame);
-  context.applyCompanyRailLayout(rail);
   assert.equal(panel.hidden, false); assert.equal(notifications.length, 0);
   threadId = 'task-b';
   assert.equal(context.syncAssetConsoleTaskContext(), true);

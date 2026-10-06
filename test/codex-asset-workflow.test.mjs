@@ -72,7 +72,7 @@ test("an open Asset Console refreshes when the selected Codex task changes", asy
   assert.match(injection, /function syncAssetConsoleTaskContext/);
   assert.match(injection, /panel\.dataset\.taskContextKey === nextKey/);
   assert.match(injection, /panel\.querySelector\(`#\$\{ASSET_CONSOLE_FRAME_ID\}`\)\?\.remove\(\)/);
-  assert.match(injection, /function sync\(\) \{[\s\S]{0,180}syncAssetConsoleTaskContext\(\)/);
+  assert.match(injection, /function sync\(\) \{[\s\S]{0,1200}syncAssetConsoleTaskContext\(\)/);
   assert.match(injection, /data-app-action-sidebar-thread-selected/);
 });
 

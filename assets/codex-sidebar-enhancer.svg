@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1E3148"/>
+      <stop offset="1" stop-color="#0A1220"/>
+    </linearGradient>
+    <linearGradient id="rail" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9BFFF0"/>
+      <stop offset="0.52" stop-color="#52C9FF"/>
+      <stop offset="1" stop-color="#657CFF"/>
+    </linearGradient>
+    <linearGradient id="pane" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A405A"/>
+      <stop offset="1" stop-color="#17263A"/>
+    </linearGradient>
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="34" y="34" width="956" height="956" rx="224" fill="url(#bg)"/>
+  <rect x="114" y="142" width="796" height="740" rx="112" fill="#0A1423" opacity="0.7"/>
+  <rect x="150" y="178" width="224" height="668" rx="64" fill="url(#pane)"/>
+  <rect x="188" y="222" width="48" height="580" rx="24" fill="url(#rail)" filter="url(#glow)"/>
+  <circle cx="212" cy="330" r="26" fill="#E6FFF9"/>
+  <circle cx="212" cy="512" r="26" fill="#B9F8FF"/>
+  <circle cx="212" cy="694" r="26" fill="#B9C9FF"/>
+  <rect x="430" y="252" width="320" height="34" rx="17" fill="#8EEBDD" opacity="0.9"/>
+  <rect x="430" y="338" width="254" height="24" rx="12" fill="#7B96B7" opacity="0.75"/>
+  <rect x="430" y="404" width="294" height="24" rx="12" fill="#7B96B7" opacity="0.55"/>
+  <rect x="430" y="526" width="224" height="24" rx="12" fill="#7B96B7" opacity="0.75"/>
+  <rect x="430" y="592" width="276" height="24" rx="12" fill="#7B96B7" opacity="0.55"/>
+  <path d="M790 156 808 202 854 220 808 238 790 284 772 238 726 220 772 202Z" fill="#A3FFF0" filter="url(#glow)"/>
+  <path d="M790 178 802 208 832 220 802 232 790 262 778 232 748 220 778 208Z" fill="#F0FFFC"/>
+</svg>

@@ -99,18 +99,20 @@ test("usage presentation is compact and has an honest unavailable fallback", asy
     resetsAt: "2026-08-15T20:30:20.000Z",
   };
 
-  assert.deepEqual(presentRateLimit?.(usage, { timeZone: "Asia/Shanghai" }), {
+  const presentation = presentRateLimit?.(usage, { timeZone: "Asia/Shanghai" });
+  assert.deepEqual(Object.fromEntries(["available", "text", "remainingPercent", "tone", "ariaLabel"].map(key => [key, presentation[key]])), {
     available: true,
     text: "本周剩余 52%",
     remainingPercent: 52,
     tone: "normal",
-    ariaLabel: "Codex 本周额度剩余 52%，8月16日 04:30 重置",
+    ariaLabel: "Codex 本周额度剩余 52%，正常重置 8月16日 04:30，重置卡 --，Tibo概率 --",
   });
-  assert.deepEqual(presentRateLimit?.(null), {
+  const unavailable = presentRateLimit?.(null);
+  assert.deepEqual(Object.fromEntries(["available", "text", "remainingPercent", "tone", "ariaLabel"].map(key => [key, unavailable[key]])), {
     available: false,
     text: "剩余量 --",
     remainingPercent: null,
     tone: "muted",
-    ariaLabel: "Codex 剩余量暂不可用",
+    ariaLabel: "Codex 剩余量暂不可用，正常重置 --，重置卡 --，Tibo概率 --",
   });
 });

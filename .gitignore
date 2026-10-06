@@ -13,6 +13,14 @@ node_modules/
 *.sha256.txt
 *.tmp
 .api-token
+account-profiles.json
+startup-settings.json
+install-manifest.json
+browser-profile*/
+backups/
+backup/
+*.bak
+*.bak-*
 asset-browser.config.json
 .asset-download-ledger.json
 ledgers/

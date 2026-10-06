@@ -18,13 +18,14 @@ function walk(dir) {
 }
 const files = args.includes('--all') ? walk(root)
   : execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {cwd: root}).toString().split('\0').filter(Boolean);
-const forbidden = /^(?:\.api-token|\.generation-tickets\.json|\.thread-project-bindings\.json|\.asset-download-ledger\.json|\.midjourney-workspace\.json|enhancer\.config\.json|asset-browser\.config\.json|task-context\.json|original\.jsonl|cold-index\.sqlite|cookies(?:\.json)?|auth\.json)$/i;
+const forbidden = /^(?:\.api-token|\.generation-tickets\.json|\.thread-project-bindings\.json|\.asset-download-ledger\.json|\.midjourney-workspace\.json|enhancer\.config\.json|asset-browser\.config\.json|account-profiles\.json|startup-settings\.json|install-manifest\.json|task-context\.json|original\.jsonl|cold-index\.sqlite|cookies(?:\.json)?|auth\.json)$/i;
+const privateDirectory = /(?:^|[\\/])(?:browser-profile[^\\/]*|backups?|logs|task-context|sessions)(?:[\\/]|$)/i;
 const credential = /(?:ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|sk-(?:proj-)?[A-Za-z0-9_-]{35,}|-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----)/;
 const textExtensions = new Set(['.js','.mjs','.cjs','.json','.md','.txt','.html','.css','.ps1','.sh','.cmd','.bat','.py','.toml','.yaml','.yml']);
 const findings = [];
 for (const file of new Set(files)) {
   const full = path.join(root, file);
-  if (forbidden.test(path.basename(file)) || /\.(?:log|prompt\.md|meta\.json)$/i.test(file)) findings.push({file, reason:'runtime or private data file'});
+  if (forbidden.test(path.basename(file)) || privateDirectory.test(file) || /\.(?:log|prompt\.md|meta\.json|bak)(?:$|[-.])/i.test(file)) findings.push({file, reason:'runtime or private data file'});
   if (!statSync(full).isFile()) continue;
   const content = readFileSync(full, 'utf8');
   if (deny.some(value => value && content.toLowerCase().includes(String(value).toLowerCase()))) findings.push({file, reason:'private marker'});

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync, writeFileSync, rmSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -14,6 +14,10 @@ test('release scan accepts source and rejects runtime data, credentials and priv
     writeFileSync(join(root, 'README.md'), '# Public source\n');
     assert.equal(scan().status, 0);
     writeFileSync(join(root, '.api-token'), 'local-token');
+    writeFileSync(join(root, 'account-profiles.json'), '{"profiles":[]}');
+    writeFileSync(join(root, 'startup-settings.json'), '{}');
+    mkdirSync(join(root, 'browser-profile-direct'));
+    writeFileSync(join(root, 'browser-profile-direct', 'Preferences'), '{}');
     writeFileSync(join(root, 'config.js'), 'ghp_' + 'a'.repeat(40));
     writeFileSync(join(root, 'image.png'), 'fixture-private-marker');
     const deny = join(root, 'deny.json');
@@ -21,7 +25,7 @@ test('release scan accepts source and rejects runtime data, credentials and priv
     const result = scan('--deny-file', deny);
     assert.equal(result.status, 1);
     const findings = JSON.parse(result.stdout).findings;
-    for (const [file, reason] of [['.api-token', 'runtime or private data file'], ['config.js', 'credential pattern'], ['image.png', 'private marker']]) {
+    for (const [file, reason] of [['.api-token', 'runtime or private data file'], ['account-profiles.json', 'runtime or private data file'], ['startup-settings.json', 'runtime or private data file'], [join('browser-profile-direct', 'Preferences'), 'runtime or private data file'], ['config.js', 'credential pattern'], ['image.png', 'private marker']]) {
       assert.ok(findings.some(item => item.file === file && item.reason === reason));
     }
   } finally {

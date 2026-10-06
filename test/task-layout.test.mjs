@@ -19,8 +19,8 @@ test('ordinary task preferences never change the project layout preference', () 
   assert.equal(context.currentViewMode(), 'list');
   context.activeSectionTab = '项目';
   assert.equal(context.currentViewMode(), 'card');
-  context.activeSectionTab = '置顶'; context.company = true;
-  assert.equal(context.currentViewMode(), 'card');
+  context.activeSectionTab = '置顶';
+  assert.equal(context.currentViewMode(), 'list');
 });
 
 test('overview shows excerpts, omits filler, and does not claim task completion', () => {

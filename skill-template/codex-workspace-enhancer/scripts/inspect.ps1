@@ -1,10 +1,12 @@
 param(
   [string]$EnhancerDir = (Join-Path $env:LOCALAPPDATA "Programs\Codex Sidebar Enhancer"),
-  [string]$BackendDir = (Join-Path $env:LOCALAPPDATA "Programs\Codex Sidebar Enhancer\asset-browser"),
+  [string]$StateDir = (Join-Path $env:LOCALAPPDATA "CodexSidebarEnhancer"),
+  [string]$BackendDir = "",
   [int]$BackendPort = 5177
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $BackendDir) { $BackendDir = Join-Path $EnhancerDir "asset-browser" }
 
 function Get-NodeInfo {
   $command = Get-Command node -ErrorAction SilentlyContinue
@@ -18,7 +20,7 @@ function Get-NodeInfo {
 function Test-BackendHealth {
   param([int]$Port)
   try {
-    $tokenPath = Join-Path $env:LOCALAPPDATA 'CodexSidebarEnhancer\asset-browser\.api-token'
+    $tokenPath = Join-Path $StateDir 'asset-browser\.api-token'
     $token = (Get-Content -LiteralPath $tokenPath -Raw -Encoding UTF8).Trim()
     $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/projects" -Headers @{ 'x-asset-console-token' = $token } -TimeoutSec 2
     return [ordered]@{ reachable = $true; projects = @($response.projects).Count; error = $null }
@@ -49,7 +51,7 @@ $result = [ordered]@{
   assetBrowser = [ordered]@{
     installed = (Test-Path -LiteralPath $backendServer)
     installDir = $BackendDir
-    configPresent = (Test-Path -LiteralPath (Join-Path $BackendDir "asset-browser.config.json"))
+    configPresent = (Test-Path -LiteralPath (Join-Path $StateDir "asset-browser\asset-browser.config.json"))
     processCount = $backendProcesses.Count
     health = Test-BackendHealth -Port $BackendPort
   }

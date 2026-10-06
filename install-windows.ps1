@@ -133,7 +133,7 @@ try {
   New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
   $stagingCreated = $true
 
-  foreach ($directory in @("asset-browser", "asset-console", "inject", "lib", "scripts", "windows", "templates")) {
+  foreach ($directory in @("asset-browser", "asset-console", "assets", "inject", "lib", "scripts", "windows", "templates")) {
     Copy-Item -LiteralPath (Join-Path $sourceDir $directory) -Destination $stagingDir -Recurse -Force
   }
   foreach ($file in @("LICENSE", "README.md", "README-Windows.txt", "package.json")) {
@@ -200,10 +200,11 @@ try {
     }
     $shortcutsTouched = $true
     $runtimeArguments = "-Port $Port -InstallDir `"$InstallDir`" -StateDir `"$StateDir`""
-    New-Shortcut -Path $desktopShortcut -ScriptPath $launcherScript -IconPath $codexExe -ScriptArguments $runtimeArguments
-    New-Shortcut -Path $programShortcut -ScriptPath $launcherScript -IconPath $codexExe -ScriptArguments $runtimeArguments
-    New-Shortcut -Path $uninstallShortcut -ScriptPath $uninstallScript -IconPath $codexExe -ScriptArguments $runtimeArguments -Hidden $false
-    New-Shortcut -Path $startupShortcut -ScriptPath $startupScript -IconPath $codexExe -ScriptArguments $runtimeArguments
+    $enhancerIcon = Join-Path $InstallDir "assets\codex-sidebar-enhancer.ico"
+    New-Shortcut -Path $desktopShortcut -ScriptPath $launcherScript -IconPath $enhancerIcon -ScriptArguments $runtimeArguments
+    New-Shortcut -Path $programShortcut -ScriptPath $launcherScript -IconPath $enhancerIcon -ScriptArguments $runtimeArguments
+    New-Shortcut -Path $uninstallShortcut -ScriptPath $uninstallScript -IconPath $enhancerIcon -ScriptArguments $runtimeArguments -Hidden $false
+    New-Shortcut -Path $startupShortcut -ScriptPath $startupScript -IconPath $enhancerIcon -ScriptArguments $runtimeArguments
   }
 
   if (-not $SkipStart) {

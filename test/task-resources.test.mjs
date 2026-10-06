@@ -27,15 +27,16 @@ test('cold references remain task-scoped and bounded without the former asset re
       return this.nodes.get(selector);
     }
   }
-  const context = vm.createContext({
+  const context = vm.createContext({ clearTimeout() {}, setTimeout: fn => { fn(); return 1; }, assetConsoleCloseTimer: null,
     document: { createElement: () => new Element(), querySelector: () => { pageReads++; return null; } },
     localStorage: { getItem: () => null, setItem: () => writes++ },
     currentConversationThreadId: () => active,
+    currentColdHistory: () => null,
     assetConsole: { assetAvailable: true },
     addTextToComposer: value => { composed.push(value); return true; },
     sendMessage: () => sends++,
   });
-  for (const name of ['normalizedThreadId', 'isAbsoluteWindowsAssetPath', 'readTaskColdArchive', 'taskContextForSnapshot', 'taskResourceReferenceRequest', 'decorateTaskResourceButton', 'renderTaskLinkedResources', 'createTaskColdSection', 'renderTaskColdSection']) vm.runInContext(extract(name), context);
+  for (const name of ['normalizedThreadId', 'isAbsoluteWindowsAssetPath', 'readTaskColdArchive', 'coldArchiveForTask', 'taskContextForSnapshot', 'taskResourceReferenceRequest', 'decorateTaskResourceButton', 'renderTaskLinkedResources', 'createTaskColdSection', 'renderTaskColdSection']) vm.runInContext(extract(name), context);
   const references = [
     { kind: 'history', label: '旧任务记录', archivePath: 'E:/cold/old', sourceThreadId: 'old', recordId: 20691 },
     { kind: 'history', label: '旧任务档案', archivePath: 'E:/cold/old', sourceThreadId: 'old' },
@@ -77,7 +78,7 @@ test('cold references remain task-scoped and bounded without the former asset re
 
 test('cold entries are task-scoped and create bounded requests without reading archives', () => {
   const data = new Map();
-  const context = vm.createContext({ localStorage: { getItem: k => data.get(k), setItem: (k,v) => data.set(k,v) } });
+  const context = vm.createContext({ clearTimeout() {}, setTimeout: fn => { fn(); return 1; }, assetConsoleCloseTimer: null, localStorage: { getItem: k => data.get(k), setItem: (k,v) => data.set(k,v) } });
   for (const name of ['isAbsoluteWindowsAssetPath', 'readTaskColdArchive', 'saveTaskColdArchive', 'coldHistoryRequest']) vm.runInContext(extract(name), context);
   context.saveTaskColdArchive('a', 'E:/cold/a');
   context.saveTaskColdArchive('b', 'E:/cold/b');
@@ -96,8 +97,9 @@ test('cold entries are task-scoped and create bounded requests without reading a
 test('asset context uses actual conversation rather than stale sidebar selection', () => {
   let conversationId = 'cloud:active';
   const selected = { getAttribute: name => name.endsWith('id') ? 'local:previous' : 'Previous title' };
-  const context = vm.createContext({ document: { querySelector: selector => selector.includes('data-above-composer')
+  const context = vm.createContext({ clearTimeout() {}, setTimeout: fn => { fn(); return 1; }, assetConsoleCloseTimer: null, document: { querySelector: selector => selector.includes('data-above-composer')
     ? conversationId ? { getAttribute: () => conversationId } : null : selected }, currentThreadHeaderTitle: () => 'Current title' });
+  context.readActiveThreadRef = () => ({ threadId: conversationId.replace(/^cloud:/, ''), selectedId: 'previous', selected });
   vm.runInContext(extract('currentCodexTaskContext'), context);
   assert.equal(context.currentCodexTaskContext().threadId, 'active');
   assert.equal(context.currentCodexTaskContext().threadTitle, 'Current title');
@@ -109,7 +111,7 @@ test('asset context uses actual conversation rather than stale sidebar selection
 test('ordinary asset close preserves the frame and proxy; hidden assets do not follow tasks or consume Escape', () => {
   let removed = false, closed = 0, prevented = false;
   const panel = { dataset: { consoleKind: 'asset', docked: 'false' }, hidden:false, remove:()=>removed=true, closest:()=>null };
-  const context = vm.createContext({ ASSET_CONSOLE_PANEL_ID:'asset', COMPANY_WORKBENCH_MODE_ATTR:'company', assetConsoleReturnFocus:null,
+  const context = vm.createContext({ clearTimeout() {}, setTimeout: fn => { fn(); return 1; }, assetConsoleCloseTimer: null, ASSET_CONSOLE_PANEL_ID:'asset', COMPANY_WORKBENCH_MODE_ATTR:'company', assetConsoleReturnFocus:null,
     document:{getElementById:()=>panel, documentElement:{getAttribute:()=>null}}, isTaskShell:()=>true,
     notifyAssetConsole:()=>closed++, scheduleSync:()=>{}, requestAnimationFrame:()=>{} });
   for (const name of ['closeAssetConsolePanel', 'syncAssetConsoleTaskContext', 'handleAssetConsoleKeydown']) vm.runInContext(extract(name), context);
@@ -126,18 +128,18 @@ test('ordinary asset close preserves the frame and proxy; hidden assets do not f
 });
 
 test('ordinary notes replace the duplicate action and excerpt without altering project or company summaries', () => {
-  const element = () => ({ dataset: {}, attributes: {}, setAttribute(key, value) { this.attributes[key] = value; }, append() {}, replaceChildren() {} });
+  const element = () => ({ dataset: {}, classList: { add() {}, remove() {} }, attributes: {}, setAttribute(key, value) { this.attributes[key] = value; }, append() {}, replaceChildren() {} });
   const nodes = new Map();
   const tabs = ['context', 'skills', 'assets'].map(taskRailTab => Object.assign(element(), { dataset: { taskRailTab } }));
-  const rail = { dataset: {}, querySelector: selector => {
+  const rail = { dataset: {}, setAttribute() {}, querySelector: selector => {
     if (!nodes.has(selector)) nodes.set(selector, element());
     return nodes.get(selector);
   }, querySelectorAll: selector => {
-    assert.equal(selector, '[data-task-rail-tab]');
-    return tabs;
+    return selector === '[data-task-rail-tab]' ? tabs : [];
   } };
   let taskShell = true, company = false, notesRenders = 0, resourceRenders = 0, excerptRenders = 0, autoRenders = 0, skillsRenders = 0;
-  const context = vm.createContext({
+  const context = vm.createContext({ clearTimeout() {}, setTimeout: fn => { fn(); return 1; }, assetConsoleCloseTimer: null,
+    normalizedThreadId: value => value || '', currentCodexTaskContext: () => ({ threadId: 'a' }), threadOverview: null, overviewCollapsed: false, requestTaskSkillCatalog() {}, spaceUiText: value => value || '', requestAnimationFrame() {},
     COMPANY_WORKBENCH_MODE_ATTR: 'company',
     taskRailTab: 'context',
     document: { documentElement: { getAttribute: () => company ? 'true' : null }, createElement: element, createTextNode: value => value },
@@ -150,7 +152,7 @@ test('ordinary notes replace the duplicate action and excerpt without altering p
   for (const name of ['cleanTaskPreviewText', 'taskOverviewPresentation', 'taskContextForSnapshot', 'renderThreadOverviewRail']) vm.runInContext(extract(name), context);
   const snapshot = { threadId: 'a', title: '任务', summary: '原总结', latestAnswer: '最新答复', nextStep: '原下一步', status: '待继续' };
   context.renderThreadOverviewRail(rail, snapshot);
-  assert.equal(rail.querySelector('[data-codex-thread-add-memo]').hidden, true);
+  assert.equal(rail.querySelector('[data-codex-thread-add-memo]').hidden, false);
   assert.equal(rail.querySelector('[data-codex-thread-default-summary]').hidden, true);
   assert.equal(rail.querySelector('[data-codex-task-context-extras]').hidden, false);
   assert.deepEqual([notesRenders, resourceRenders, excerptRenders], [1, 0, 1]);
@@ -187,7 +189,7 @@ test('ordinary notes replace the duplicate action and excerpt without altering p
   context.renderThreadOverviewRail(rail, snapshot);
   assertPane(null);
   assert.equal(rail.querySelector('[data-codex-thread-add-memo]').hidden, true);
-  assert.equal(rail.querySelector('[data-codex-thread-add-memo]').textContent, '加入未完成工作');
+  assert.equal(rail.querySelector('[data-codex-thread-add-memo]').textContent, '编辑结论与下一步');
   assert.equal(rail.querySelector('[data-codex-thread-default-summary]').hidden, false);
   assert.equal(rail.querySelector('[data-codex-task-context-extras]').hidden, true);
   assert.equal(rail.querySelector('[data-codex-thread-overview-summary]').textContent, '原总结');
@@ -197,8 +199,8 @@ test('ordinary notes replace the duplicate action and excerpt without altering p
   context.renderThreadOverviewRail(rail, snapshot);
   assertPane(null);
   assert.equal(rail.querySelector('[data-codex-thread-add-memo]').hidden, true);
-  assert.equal(rail.querySelector('[data-codex-thread-add-memo]').textContent, '同步到未完成工作');
-  assert.equal(rail.querySelector('[data-codex-thread-overview-heading]').textContent, '主控态势');
+  assert.equal(rail.querySelector('[data-codex-thread-add-memo]').textContent, '编辑结论与下一步');
+  assert.equal(rail.querySelector('[data-codex-thread-overview-heading]').textContent, '线程概述');
   assert.equal(autoRenders, 4);
   assert.equal(skillsRenders, 1);
   assert.deepEqual([notesRenders, resourceRenders, excerptRenders], [4, 0, 4]);

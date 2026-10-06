@@ -1207,14 +1207,54 @@ async function listCases(projectId) {
       directory = path.dirname(directory);
     }
   }
-  for (const output of await managedOutputs(project.id)) {
-    const stats = await fs.stat(output.storePath).catch(() => null);
-    if (!stats) continue;
-    const id = output.caseId || path.dirname(output.relativePath) || ".";
-    const existing = byPath.get(path.normalize(id).toLowerCase());
-    if (existing) { existing.mediaCount += 1; existing.mtimeMs = Math.max(existing.mtimeMs, stats.mtimeMs); }
-    else { const item = { id, projectId: project.id, name: path.basename(id), relPath: id, scanRoot: "@managed", mediaCount: 1, mtimeMs: stats.mtimeMs, managed: true }; cases.push(item); byPath.set(path.normalize(id).toLowerCase(), item); }
+  const threadId = project.id.startsWith("codex-thread:") ? project.id.slice("codex-thread:".length) : "";
+  for (const output of await managedOutputs(threadId ? "" : project.id)) {
+    if (threadId && (!all || output.threadId !== threadId)) continue;
+    const outputCaseId = output.caseId || path.dirname(output.relativePath) || ".";
+    if (!all && path.normalize(outputCaseId).toLowerCase() !== path.normalize(caseId).toLowerCase()) continue;
+    let stats;
+    try {
+      stats = await fs.stat(output.storePath);
+    } catch {
+      continue;
+    }
+    const stored = output.review || {};
+    const kind = output.kind === "video" ? "video" : output.kind === "audio" ? "audio" : "image";
+    assets.push({
+      id: output.outputId,
+      outputId: output.outputId,
+      managed: true,
+      projectId: threadId ? output.projectId : project.id,
+      projectName: threadId ? output.projectName : project.name,
+      caseId: threadId ? outputCaseId : caseId,
+      kind,
+      type: fileType(output.storePath) || kind,
+      absolutePath: output.storePath,
+      ticketId: output.ticketId || "",
+      sourceTask: output.sourceTask || "",
+      promptPath: output.promptPath || "",
+      previewUrl: `/api/preview?output=${encodeURIComponent(output.outputId)}`,
+      version: inferVersion(output.relativePath || ""),
+      name: output.fileName || path.basename(output.relativePath),
+      relPath: output.relativePath,
+      resolvedPath: output.storePath,
+      caseRelPath: output.outputId,
+      dir: path.dirname(output.relativePath),
+      mediaUrl: `/media?output=${encodeURIComponent(output.outputId)}`,
+      downloadUrl: `/download?output=${encodeURIComponent(output.outputId)}`,
+      size: stats.size,
+      mtimeMs: stats.mtimeMs,
+      mtime: new Date(stats.mtimeMs).toISOString(),
+      initialStatus: initialStatus(output.relativePath || ""),
+      userStatus: stored.userStatus || "",
+      notes: stored.notes || "",
+      favorite: Boolean(stored.favorite),
+      tags: stored.tags || [],
+      ...managedClassification(output)
+    });
   }
+  const unique = new Map();
+  for (const asset of assets) unique.set(path.normalize(asset.absolutePath).toLowerCase(), asset);
   return cases;
 }
 

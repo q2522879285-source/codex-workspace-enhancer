@@ -1,12 +1,14 @@
 param(
   [string]$EnhancerDir = (Join-Path $env:LOCALAPPDATA "Programs\Codex Sidebar Enhancer"),
-  [string]$BackendDir = (Join-Path $env:LOCALAPPDATA "Programs\Codex Sidebar Enhancer\asset-browser"),
+  [string]$StateDir = (Join-Path $env:LOCALAPPDATA "CodexSidebarEnhancer"),
+  [string]$BackendDir = "",
   [int]$BackendPort = 5177,
   [switch]$SkipHealth,
   [switch]$BundleOnly
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $BackendDir) { $BackendDir = Join-Path $EnhancerDir "asset-browser" }
 $skillRoot = Split-Path -Parent $PSScriptRoot
 $manifestPath = Join-Path $skillRoot "assets\runtime\manifest.sha256.json"
 if (-not (Test-Path -LiteralPath $manifestPath)) { throw "Missing bundled runtime manifest: $manifestPath" }
@@ -63,7 +65,7 @@ foreach ($relative in $backendFiles) {
   Compare-BundledFile "asset-browser/$relative" (Join-Path $BackendDir ($relative -replace '/', '\'))
 }
 
-$configPath = Join-Path $env:LOCALAPPDATA 'CodexSidebarEnhancer\asset-browser\asset-browser.config.json'
+$configPath = Join-Path $StateDir 'asset-browser\asset-browser.config.json'
 Add-Check 'config:present' (Test-Path -LiteralPath $configPath) $configPath
 if (Test-Path -LiteralPath $configPath) {
   try { $null = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json; Add-Check 'config:valid-json' $true 'valid' }
@@ -72,7 +74,7 @@ if (Test-Path -LiteralPath $configPath) {
 
 if (-not $SkipHealth) {
   try {
-    $tokenPath = Join-Path $env:LOCALAPPDATA 'CodexSidebarEnhancer\asset-browser\.api-token'
+    $tokenPath = Join-Path $StateDir 'asset-browser\.api-token'
     if (-not (Test-Path -LiteralPath $tokenPath)) { throw "Missing API token: $tokenPath" }
     $token = (Get-Content -LiteralPath $tokenPath -Raw -Encoding UTF8).Trim()
     if ($token.Length -lt 32) { throw "Invalid API token: $tokenPath" }

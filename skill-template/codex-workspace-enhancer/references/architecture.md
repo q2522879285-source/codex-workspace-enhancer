@@ -1,40 +1,28 @@
 # Architecture
 
-## Stable method layer
+## Stable workflow
 
-The product loop is stable across platforms:
+Read native Codex state, augment task recall without replacing the sidebar, bind one task context/map to the active task, and host optional browser/local-asset/cloud-library surfaces. Return explicit selections to the composer without submission; teardown stale sessions on close or task switch. The assistant maintains concise summaries; no background model writes them.
 
-1. Read native Codex task and usage state.
-2. Present task recall and shortcuts without covering native UI.
-3. Bind one embedded Asset Console to the active task.
-4. Browse, organize, compare, and select local assets.
-5. Hand absolute paths back to the current composer without submitting.
-6. Tear down sessions, listeners, and local proxy access on close.
+Task naming/grouping is a separate opt-in assistant workflow through native tools. It is not a runtime watcher or database mutation.
 
-Do not place project paths, user names, debug ports, or platform-specific process discovery in this layer.
+## Platform adapter
 
-## Replaceable adapter layer
+Adapters own executable/process discovery, renderer/debug transport, local-service lifecycle, safe install/state roots, shortcut creation, absolute-path validation, and packaging/rollback. The Windows package requires Node.js >=22.13.0. Debug port 9231 and local service port 5177 are defaults, not universal machine facts. Match the actual configured port and install/state paths.
 
-Adapters own:
-
-- Codex executable/process discovery
-- debug transport and renderer attachment
-- local service location and lifecycle
-- safe install/state roots
-- OS shortcut integration
-- absolute-path rules
-- packaging and rollback mechanics
-
-The bundled adapter targets current Windows Codex desktop, Node 22+, debug port 9231, and AssetBrowser port 5177.
+Windows is the validated release target. Retained macOS scripts are not evidence of physical Mac compatibility.
 
 ## Runtime boundaries
 
-- **Injected UI:** native sidebar augmentation and embedded panel host.
-- **Injector:** CDP attachment, lifecycle, usage-event observation, and dedicated frame proxy.
-- **Asset Console frontend:** task-aware asset workflow and bounded UI cache.
-- **Local service:** file indexing and explicit filesystem operations.
-- **Install layer:** owned-path validation, backup, rollback, start, and verification.
+- `inject/conversation-preview.user.js`: sidebar/right-rail, task context, Skills, map integration, library UI.
+- `inject/global-task-map.js`: global directions/items/task-link map. Per-thread map rendering remains in `conversation-preview.user.js`.
+- `inject/global-browser.js`: embedded browser and explicit native quick-chat actions.
+- `scripts/injector.mjs`: renderer attachment, native bridge, frame proxy, local backend lifecycle, optional MOKE authorization bridge.
+- `asset-console/public/`: published local Asset Console frontend.
+- `asset-browser/`: local file APIs and scoped operations.
+- `windows/`: launcher, startup overlay, lifecycle and removal.
+- `templates/`: opt-in rules and neutral defaults, not installed personal policy.
 
-Local-service access must remain unavailable to unrelated sandbox frames. A frame is authorized by a dedicated synthetic origin, per-open nonce, exact session/frame identity, and generation. Leaving that frame or closing the panel invalidates access.
+The dedicated asset proxy is authorized by synthetic origin, per-open nonce, session/frame identity, and request generation. Closing/leaving invalidates access. The backend requires a per-install token for protected APIs/media/downloads. The token lives in mutable asset state and is added by the injector's server-side proxy, never exposed to iframe JavaScript or bundled as a value.
 
-The Windows adapter also requires a per-install 256-bit token for `/api/*`, `/media`, and `/download`. The injector reads `%LOCALAPPDATA%\AssetBrowser\.api-token` and adds it only to server-side proxy requests; the backend rejects missing tokens and non-local browser origins. Never expose the token to iframe JavaScript, bundle a token value, or disable this check.
+Cloud library content/authentication belongs to the separately configured provider account. Browser navigation does not grant local-file API access. Runtime, mutable state, and protected project assets remain separately owned.

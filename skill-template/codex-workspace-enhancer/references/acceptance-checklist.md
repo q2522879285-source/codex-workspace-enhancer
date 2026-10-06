@@ -9,7 +9,7 @@
 
 ## Usage display
 
-- The shown percentage equals `round((1 - used_percent / 100) * 100)` from the newest valid primary weekly-window event.
+- Each shown window matches the latest valid native rate-limit data for that window; remaining percent is `100 - usedPercent`, clamped to 0..100. Do not relabel a short window as weekly.
 - Missing or stale events show an unknown state instead of a guessed value.
 - Updates are monotonic by event timestamp, not DOM discovery order.
 
@@ -37,3 +37,15 @@
 - Rollback removes only files created by the failed run and restores backups.
 - Existing AssetBrowser config, ledgers, and media are unchanged.
 - Packaged, source, and installed runtime hashes match for claimed files.
+
+## Startup and optional surfaces
+
+- Startup overlay releases after actual desktop readiness; reduced motion remains usable.
+- Browser tabs/navigation preserve the current native task and do not send a message.
+- A quick-chat submission targets only the user-selected native task and occurs only on submit.
+- MOKE shows missing configuration/authentication/error distinctly; opening a login URL is not proof of authorization.
+- Optional assistant naming/grouping preserves manual titles, pinned/custom placement, and project containers; completion requires native readback. Installation does not enable this workflow.
+
+## Running the checks
+
+In the extracted runtime/source repository, run `npm test` for changed runtime behavior. In the built Skill package, run `scripts/verify.ps1 -BundleOnly` for manifest integrity and `scripts/verify.ps1` for the targeted installation. Observe layout, startup, and navigation on the actual supported desktop version. Keep bundle, installed-file, service-health, and interactive results distinct; skip a surface only if unchanged/not requested and do not imply its prerequisites were tested.

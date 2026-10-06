@@ -1,18 +1,56 @@
-Codex Workspace Enhancer · Release Verification
+Codex Workspace Enhancer 3.0.0 — Reproducible verification
 
-Before publishing a release:
+These are commands to run, not a record of completed checks.
+Run from an unchanged source checkout. Tests must not use personal profiles,
+cloud accounts, live messages, or author-owned project data.
 
-1. Run npm ci and npm test.
-2. Run node --check for asset-console/public/app.js and asset-browser/server.js.
-3. Parse all PowerShell installers without errors.
-4. Run tools/build-release.ps1.
-5. Verify the Windows ZIP and Skill ZIP against their SHA-256 sidecars.
-6. Run the bundled Skill verifier with -BundleOnly.
-7. Confirm no runtime token, project configuration, ledger, personal path or private media is present.
+1. Source/runtime checks
+   npm ci
+   npm test
+   npm run check:public
+   node --check inject/conversation-preview.user.js
+   node --check inject/global-task-map.js
+   node --check inject/global-browser.js
+   node --check scripts/injector.mjs
+   node --check asset-console/public/app.js
+   node --check asset-browser/server.js
 
-The full Skill package must include:
-- the frontend Windows ZIP;
-- the authenticated local AssetBrowser service;
-- AssetBrowser public UI files;
-- install, inspect, verification and rollback scripts;
-- a manifest covering every bundled runtime file.
+2. PowerShell syntax (PowerShell)
+   Get-ChildItem install-windows.ps1,windows/*.ps1,skill-template/codex-workspace-enhancer/scripts/*.ps1 | ForEach-Object {
+     $tokens=$null; $errors=$null
+     [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
+     if ($errors.Count) { throw ($errors | Out-String) }
+   }
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\skill-template\codex-workspace-enhancer\scripts\test-inspect-paths.ps1
+
+3. Release build
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\build-release.ps1
+
+4. ZIP sidecar comparison (PowerShell)
+   Get-ChildItem .release/*.zip | ForEach-Object {
+     $expected=(Get-Content -LiteralPath ($_.FullName+'.sha256.txt') -Raw).Trim().Split(' ')[0]
+     $actual=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+     if ($actual -ne $expected) { throw ('ZIP mismatch: '+$_.Name) }
+   }
+
+5. Extract the Skill ZIP into a new empty temporary directory.
+   From its codex-workspace-enhancer directory:
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify.ps1 -BundleOnly
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-bundled.ps1 -WhatIf
+
+6. Installation checks only when the user authorizes an install.
+   Run scripts/verify.ps1 against the actual EnhancerDir and StateDir.
+   -SkipHealth leaves service health unverified; -BundleOnly does not verify installation.
+
+7. Interactive checks on the supported desktop version.
+   Startup readiness/timeout behavior and reduced motion.
+   Native sidebar controls, task A/B switching, two maps and notes isolation.
+   Browser tab/navigation persistence with no automatic message send.
+   Local asset selection places absolute paths into the composer without submit.
+   MOKE disconnected/error/authenticated states only with a configured authorized service.
+   Account switch/readback only with explicitly authorized test profiles.
+   Cold-history fixture copy/index without deleting or rewriting live history.
+
+Source tests, bundle integrity, installed-file equality, service health,
+cloud authorization and observed UI behavior are distinct results.
+No command here establishes all of them on its own.
