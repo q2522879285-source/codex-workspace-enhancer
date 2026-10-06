@@ -1600,15 +1600,17 @@
       #${TIBO_HEADER_ID} .${USAGE_TIBO_DETAILS_PANEL_CLASS} {
         position: absolute;
         top: calc(100% + 6px);
-        right: 0;
+        right: auto;
         z-index: 1001;
         display: flex;
         box-sizing: border-box;
         width: min(320px, calc(100vw - 24px));
-        max-width: 100%;
+        max-width: none;
         flex-direction: column;
         gap: 7px;
         min-width: 0;
+        max-height: min(560px, calc(100vh - 140px));
+        overflow-y: auto;
         padding: 10px 11px 9px;
         border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
         border-radius: 9px;
@@ -1661,6 +1663,18 @@
         color: var(--color-token-link-foreground, #6ea8fe);
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+      #${USAGE_ID} .${USAGE_TIBO_DETAILS_PANEL_CLASS} [data-tibo-detail="challenge"] {
+        color: var(--codex-ui-text, var(--color-token-text-primary));
+        font-weight: 600;
+        white-space: pre-line;
+      }
+      #${USAGE_ID} .${USAGE_TIBO_DETAILS_PANEL_CLASS} [hidden] {
+        display: none;
+      }
+      #${USAGE_ID} [data-tibo-detail="posted"],
+      #${USAGE_ID} [data-tibo-detail="stale"] {
+        color: var(--codex-ui-muted, var(--color-token-text-secondary));
       }
       #${USAGE_ID} .codex-conversation-usage-track {
         display: block;
@@ -11728,23 +11742,68 @@
         tiboProbabilityValue.style.removeProperty(property);
       }
     }
+    const tiboHeader = document.getElementById(TIBO_HEADER_ID);
+    const dailyStatus = tiboHeader?.querySelector('[data-tibo-daily-status]');
+    if (dailyStatus) {
+      tiboHeader.firstElementChild.textContent = usage.tiboChallengeText ? "Tibo" : "Tibo 概率";
+      dailyStatus.hidden = !usage.tiboDailyShort;
+      dailyStatus.textContent = usage.tiboDailyShort ? `· ${usage.tiboDailyShort}` : "";
+      tiboHeader.setAttribute("aria-label", `Tibo 概率 ${tiboProbability == null ? "--" : `${Math.round(tiboProbability)}%`}${usage.tiboDailyText ? `，${usage.tiboDailyText}` : ""}`);
+    }
     const tiboDetails = document.querySelector(`#${TIBO_HEADER_ID} .${USAGE_TIBO_DETAILS_CLASS}`)
       || status.querySelector(`.${USAGE_TIBO_DETAILS_CLASS}`);
     const tiboDetailsButton = document.querySelector(`#${TIBO_HEADER_ID} .${USAGE_TIBO_DETAILS_BUTTON_CLASS}`)
       || status.querySelector(`.${USAGE_TIBO_DETAILS_BUTTON_CLASS}`);
     const tiboDetailsPanel = document.querySelector(`#${TIBO_HEADER_ID} .${USAGE_TIBO_DETAILS_PANEL_CLASS}`)
       || status.querySelector(`.${USAGE_TIBO_DETAILS_PANEL_CLASS}`);
-    const detailsAvailable = Boolean(usage.tiboAvailable === true || usage.tiboSummary || usage.tiboEvidenceUrl);
+    const detailsAvailable = Boolean(usage.tiboChallengeText || usage.tiboAvailable === true || usage.tiboSummary || usage.tiboEvidenceUrl);
     if (tiboDetails && tiboDetailsButton && tiboDetailsPanel) {
       tiboDetails.hidden = !detailsAvailable;
       tiboDetailsButton.disabled = !detailsAvailable;
       if (!detailsAvailable) tiboDetailsPanel.hidden = true;
       tiboDetailsButton.setAttribute("aria-expanded", String(!tiboDetailsPanel.hidden));
+      for (const [key, text] of Object.entries({
+        challenge: usage.tiboChallengeText ? `Codex 更新公告 · 28 天活动\n10月5日—11月1日 · ${usage.tiboChallengeText}` : "",
+        promise: usage.tiboChallengeText ? "公告依据：Tibo 承诺未来 28 天，每天推出一项面向大多数 Codex / Work 用户的改进，或进行一次全面重置。" : "",
+        reason: usage.tiboProbabilityReason ? `概率规则：${usage.tiboProbabilityReason}` : "",
+        daily: usage.tiboDailyText, deadline: usage.tiboDeadlineText, remaining: usage.tiboRemainingText,
+        posted: usage.tiboNewsPostedText || usage.tiboDailyPostedText
+          ? `最新动态 · ${usage.tiboNewsPostedText || usage.tiboDailyPostedText}（北京时间）` : "",
+        stale: usage.tiboFeedStale || usage.tiboChallengeStale ? "数据未完整刷新，显示最近可用记录" : "",
+        today: usage.tiboDailyEvidenceUrl && usage.tiboDailySummary !== usage.tiboSummary
+          ? `当日记录：${usage.tiboDailySummary}` : "",
+        signal: usage.tiboSignalSummary ? `重置预告：${usage.tiboSignalSummary}` : "",
+      })) {
+        const node = tiboDetailsPanel.querySelector(`[data-tibo-detail="${key}"]`);
+        node.textContent = text || "";
+        (node.closest('[data-tibo-row]') || node).hidden = !text;
+      }
       tiboDetailsPanel.querySelector(`[data-tibo-detail="expected"]`).textContent = usage.tiboResetText || "--";
-      tiboDetailsPanel.querySelector(`[data-tibo-detail="evidence"]`).textContent = usage.tiboSummary || "暂无公开证据";
+      tiboDetailsPanel.querySelector(`[data-tibo-detail="evidence"]`).textContent = usage.tiboSummary || usage.tiboDailySummary || "暂无公开动态";
       const evidenceLink = tiboDetailsPanel.querySelector(`[data-tibo-detail="link"]`);
-      evidenceLink.hidden = !usage.tiboEvidenceUrl;
-      evidenceLink.href = usage.tiboEvidenceUrl || "#";
+      const evidenceUrl = usage.tiboEvidenceUrl || usage.tiboDailyEvidenceUrl;
+      evidenceLink.hidden = !evidenceUrl;
+      evidenceLink.href = evidenceUrl || "#";
+      evidenceLink.textContent = "去 X 查看更新原帖  ›";
+      const announcement = tiboDetailsPanel.querySelector('[data-tibo-detail="announcement"]');
+      announcement.hidden = !usage.tiboAnnouncementUrl || usage.tiboAnnouncementUrl === evidenceUrl;
+      announcement.href = usage.tiboAnnouncementUrl || "#";
+      const signalLink = tiboDetailsPanel.querySelector('[data-tibo-detail="signal-link"]');
+      signalLink.hidden = !usage.tiboSignalEvidenceUrl || usage.tiboSignalEvidenceUrl === evidenceUrl;
+      signalLink.href = usage.tiboSignalEvidenceUrl || "#";
+      const todayLink = tiboDetailsPanel.querySelector('[data-tibo-detail="today-link"]');
+      todayLink.hidden = !usage.tiboDailyEvidenceUrl || usage.tiboDailyEvidenceUrl === evidenceUrl;
+      todayLink.href = usage.tiboDailyEvidenceUrl || "#";
+      const sidebar = status.closest('.app-shell-left-panel') || document.getElementById('app-shell-sidebar');
+      if (sidebar) {
+        const bounds = sidebar.getBoundingClientRect();
+        const anchor = status.getBoundingClientRect();
+        const left = Math.max(0, bounds.left) + 12;
+        const right = Math.min(innerWidth, bounds.right) - 12;
+        const width = Math.min(320, right - left);
+        tiboDetailsPanel.style.width = `${width}px`;
+        tiboDetailsPanel.style.left = `${Math.max(left, Math.min(anchor.right - width, right - width)) - anchor.left}px`;
+      }
     }
     status.dataset.tiboProbability = tiboProbability == null ? "" : String(Math.round(tiboProbability));
     status.querySelector(`.${USAGE_TEXT_CLASS}`).textContent = label;
@@ -11794,45 +11853,82 @@
       tiboProbabilityLabel.textContent = "Tibo 概率";
       const tiboProbabilityValue = document.createElement("span");
       tiboProbabilityValue.className = USAGE_TIBO_PROBABILITY_VALUE_CLASS;
+      const dailyStatus = document.createElement("span");
+      dailyStatus.dataset.tiboDailyStatus = "";
+      dailyStatus.hidden = true;
       const tiboDetails = document.createElement("span");
       tiboDetails.className = USAGE_TIBO_DETAILS_CLASS;
       tiboDetails.hidden = true;
       const tiboDetailsButton = document.createElement("button");
       tiboDetailsButton.type = "button";
       tiboDetailsButton.className = USAGE_TIBO_DETAILS_BUTTON_CLASS;
-      tiboDetailsButton.setAttribute("aria-label", "查看 Tibo 重置详情");
+      tiboDetailsButton.setAttribute("aria-label", "查看 Codex 更新公告与 Tibo 概率依据");
       tiboDetailsButton.setAttribute("aria-expanded", "false");
       tiboDetailsButton.textContent = "⌄";
       const tiboDetailsPanel = document.createElement("span");
       tiboDetailsPanel.className = USAGE_TIBO_DETAILS_PANEL_CLASS;
       tiboDetailsPanel.hidden = true;
       tiboDetailsPanel.setAttribute("role", "dialog");
-      tiboDetailsPanel.setAttribute("aria-label", "Tibo 重置详情");
-      const expectedDetail = document.createElement("span");
-      expectedDetail.className = USAGE_TIBO_DETAILS_VALUE_CLASS;
-      const expectedLabel = document.createElement("span");
-      expectedLabel.textContent = "预计重置";
-      const expectedValue = document.createElement("span");
-      expectedValue.dataset.tiboDetail = "expected";
-      expectedDetail.append(expectedLabel, expectedValue);
+      tiboDetailsPanel.setAttribute("aria-label", "Codex 更新公告");
+      const challenge = document.createElement("p");
+      challenge.dataset.tiboDetail = "challenge";
+      const promise = document.createElement("p");
+      promise.dataset.tiboDetail = "promise";
+      const reason = document.createElement("p");
+      reason.dataset.tiboDetail = "reason";
+      const detailRow = (key, label) => {
+        const row = document.createElement("span");
+        row.className = USAGE_TIBO_DETAILS_VALUE_CLASS;
+        row.dataset.tiboRow = key;
+        const name = document.createElement("span");
+        name.textContent = label;
+        const value = document.createElement("span");
+        value.dataset.tiboDetail = key;
+        row.append(name, value);
+        return row;
+      };
+      const expectedDetail = detailRow("expected", "预计重置");
+      const posted = document.createElement("p");
+      posted.dataset.tiboDetail = "posted";
+      const stale = document.createElement("p");
+      stale.dataset.tiboDetail = "stale";
       const evidence = document.createElement("p");
       evidence.dataset.tiboDetail = "evidence";
+      const signal = document.createElement("p");
+      signal.dataset.tiboDetail = "signal";
+      const today = document.createElement("p");
+      today.dataset.tiboDetail = "today";
       const evidenceLink = document.createElement("a");
       evidenceLink.dataset.tiboDetail = "link";
       evidenceLink.textContent = "去 X 查看  ›";
       evidenceLink.target = "_blank";
       evidenceLink.rel = "noreferrer noopener";
       evidenceLink.addEventListener("click", (event) => event.stopPropagation());
-      tiboDetailsPanel.append(expectedDetail, evidence, evidenceLink);
+      const announcement = evidenceLink.cloneNode();
+      announcement.dataset.tiboDetail = "announcement";
+      announcement.textContent = "去 X 查看活动原帖  ›";
+      announcement.addEventListener("click", (event) => event.stopPropagation());
+      const signalLink = evidenceLink.cloneNode();
+      signalLink.dataset.tiboDetail = "signal-link";
+      signalLink.textContent = "去 X 查看重置信号  ›";
+      signalLink.addEventListener("click", (event) => event.stopPropagation());
+      const todayLink = evidenceLink.cloneNode();
+      todayLink.dataset.tiboDetail = "today-link";
+      todayLink.textContent = "去 X 查看当日原帖  ›";
+      todayLink.addEventListener("click", (event) => event.stopPropagation());
+      tiboDetailsPanel.append(challenge, promise, announcement, reason, detailRow("daily", "当日状态"),
+        detailRow("deadline", "今日截止"), detailRow("remaining", "今日剩余"), expectedDetail,
+        posted, evidence, evidenceLink, today, todayLink, signal, signalLink, stale);
       tiboDetailsButton.onclick = (event) => {
         event.preventDefault();
         event.stopPropagation();
         const open = tiboDetailsPanel.hidden;
         tiboDetailsPanel.hidden = !open;
         tiboDetailsButton.setAttribute("aria-expanded", String(open));
+        if (open) updateUsageState();
       };
       tiboDetails.append(tiboDetailsButton, tiboDetailsPanel);
-      tiboProbability.append(tiboProbabilityLabel, tiboProbabilityValue, tiboDetails);
+      tiboProbability.append(tiboProbabilityLabel, tiboProbabilityValue, dailyStatus, tiboDetails);
       const track = document.createElement("span");
       track.className = "codex-conversation-usage-track";
       track.setAttribute("aria-hidden", "true");
@@ -11851,6 +11947,7 @@
     }
     updateUsageState();
   }
+
 
   const NATIVE_HELP_MENU_TRIGGER_ID = "application-menu-trigger-help-menu";
   const NATIVE_HELP_MENU_CONTENT_ID = "application-menu-content";

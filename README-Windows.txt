@@ -1,4 +1,4 @@
-Codex Workspace Enhancer 3.0.0 for Windows
+Codex Workspace Enhancer 3.0.1 for Windows
 
 需要 Node.js >=22.13.0 与 Codex 桌面应用。
 解压后运行：

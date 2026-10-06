@@ -150,7 +150,13 @@ Windows 启动入口为 `windows/launch.ps1`，配合 `start-injector.ps1`、`st
 
 真实剩余额度/重置时间来自原生状态，当前任务 Token 是另一个指标。用户明确切换已配置的本地账号 profile 后，原生 `account/login/start` 写入并通过 `account/read` 回读；网页打开或登录写入回执不等于桌面已切换。发布包没有账号、凭据和个人 profile。
 
-Tibo 公共源默认不请求。设置 `CODEX_TIBO_FEED_URL` 才启用；现有 BetterOPC 适配地址为 `https://betteropc.com/api/browser/product-tracking/codex/history`，也可能读取公开 reset-signals 页面取得目标时间。缓存默认60秒、请求超时5秒。百分比由公开事件状态/时间或发帖频率与提示计算，是启发式信号，不是校准后的真实统计概率、官方重置承诺或当前账号已重置证据。过期/缺失信号不能冒充新事件。
+Tibo 公共源默认不请求。设置 `CODEX_TIBO_FEED_URL` 才启用。使用 BetterOPC 适配地址 `https://betteropc.com/api/browser/product-tracking/codex/history` 时，合并 `https://betteropc.com/api/browser/product-tracking/codex/challenge` 的 28 天挑战事件，并可读取公开 reset-signals 页面取得具体重置目标时间。自定义 feed 仍须符合现有 schema，挑战双源属于该 BetterOPC 适配。
+
+挑战覆盖北京时间 2026-10-05 至 2026-11-01，每天按午夜分界，11-02 00:00 结束。活动期每日以 50% 为自定展示基准；同一北京时间日确认 `signalType=reset`、`status=executed` 且 `resetKinds` 包含 `hard` 后归零，下一活动日恢复 50%。产品改进只计入今日进展，不作为全面重置。有效的具体未来重置预告可按状态与时间提高指标。50% 未经统计校准；所有百分比均不代表官方承诺或当前账号实际已重置。
+
+界面分开呈现活动第几天、今日进展、北京时间截止、最新消息发布时间、预计重置时间、来源与概率原因。每日活动截止时间不会冒充预计重置时间；没有具体预告时，预计重置时间保持空缺。
+
+缓存默认 60 秒、请求超时 5 秒，每次回读都根据当前时间与挑战源的服务器时钟偏差重算倒计时、跨日状态和指标。网络失败可用旧数据时标记 stale，不把过期信息当新确认；首次失败显示不可用，不伪造 0%。挑战源缺失也保持可见的过期/不可用状态。
 
 相关入口：`lib/tibo-public-feed.mjs`、`lib/account-profiles.mjs`、`scripts/injector.mjs` 与额度/账号 UI。自定义 feed 必须符合现有适配 schema；不把私人 URL、账号或抓取记录写入公开模板。
 

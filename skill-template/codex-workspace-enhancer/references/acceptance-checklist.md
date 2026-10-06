@@ -13,6 +13,15 @@
 - Missing or stale events show an unknown state instead of a guessed value.
 - Updates are monotonic by event timestamp, not DOM discovery order.
 
+## Tibo public signals
+
+- Without `CODEX_TIBO_FEED_URL`, the injector makes no public-feed requests.
+- BetterOPC history and challenge events are combined without duplicate events; the challenge spans October 5–November 1, 2026, with Beijing-midnight boundaries.
+- Active-day 50% is labelled as a self-defined, uncalibrated baseline. A same-day confirmed executed hard reset sets 0%; the next active day restores 50%. Product improvement alone never sets reset-completed status. Valid concrete future-reset signals can raise the indicator.
+- Challenge day/progress/deadline, latest news time, expected reset time, sources, and probability reason remain separate. A daily deadline never substitutes for a missing reset target.
+- Cache reads advance countdowns and recompute across Beijing midnight, including server-clock offset. Failures mark retained data stale; first failure shows unavailable, not a fabricated 0%.
+- Deterministic source and package checks do not prove live desktop rendering, cloud-account authorization, or an actual account reset.
+
 ## Embedded assets
 
 - No second visible window opens.

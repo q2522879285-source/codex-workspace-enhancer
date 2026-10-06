@@ -36,16 +36,30 @@ test("public refresh delivers previews, usage and overview without a business st
     readNativeRateLimits: async () => null,
     readTaskboardSnapshot: async () => ({ available: false, message: "not configured" }),
     process: { env: { CODEX_TIBO_FEED_URL: "https://example.com/feed" } },
-    readTiboPublicSignal: async () => ({ probability: 42 }),
+    readTiboPublicSignal: async () => ({
+      source: "betteropc", probability: 50, tiboProbabilityReason: "活动期自定基准",
+      latestEventAt: "2026-10-06T02:00:00Z",
+      tiboChallenge: { phase: "active", day: 2, totalDays: 28, status: "improvement",
+        deadlineIso: "2026-10-06T16:00:00Z", remainingMinutes: 120, summary: "公开产品改进", stale: false },
+    }),
     presentCardPreview, normalizeTaskId, presentRateLimit, mergeTiboUsage, buildHomeProjectShelf,
   });
   vm.runInContext(source.slice(begin, end), context);
   await context.pushPreviews();
   assert.equal(payloads.Previews.length, 1);
-  assert.equal(payloads.Usage.tiboProbability, 42);
+  assert.equal(payloads.Usage.tiboProbability, 50);
+  assert.equal(payloads.Usage.tiboChallengeText, "进行中 · 第 2/28 天");
+  assert.equal(payloads.Usage.tiboDailyText, "已改进，尚未全面重置");
+  assert.equal(payloads.Usage.tiboDeadlineText, "10月7日 00:00（北京时间）");
+  assert.equal(payloads.Usage.tiboResetText, "未公布具体时间");
   assert.equal(payloads.ThreadOverview.currentRequest, "demo request");
   assert.equal(payloads.ThreadOverview.progress, "demo result");
   assert.equal(payloads.SearchCatalog[0].threadId, id);
   assert.equal(payloads.HomeProjects.available, false);
   assert.equal(payloads.ColdHistory.enabled, false);
+  context.process.env = {};
+  context.readTiboPublicSignal = async () => { throw new Error("opt-in feed must not run"); };
+  await context.pushPreviews();
+  assert.equal(payloads.Usage.tiboProbabilityText, "--");
+  assert.equal(payloads.Usage.tiboChallengeText, "");
 });
