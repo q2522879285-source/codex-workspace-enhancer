@@ -1,4 +1,4 @@
-Codex Workspace Enhancer 3.0.1 — Reproducible verification
+Codex Workspace Enhancer 3.0.2 — Reproducible verification
 
 These are commands to run, not a record of completed checks.
 Run from an unchanged source checkout. Tests must not use personal profiles,

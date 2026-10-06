@@ -6253,6 +6253,17 @@
     return readActiveThreadRef().threadId;
   }
 
+  function currentConversationThreadId() {
+    return readActiveThreadId() || normalizedThreadId(resolvedCurrentThreadSnapshot()?.threadId || "");
+  }
+
+  function navigateToCodexThread(threadId) {
+    const route = homeProjectRoute(normalizedThreadId(threadId));
+    if (!route) return false;
+    window.postMessage({ type: "navigate-to-route", path: route }, "*");
+    return true;
+  }
+
   function currentCodexTaskContext() {
     const active = readActiveThreadRef();
     const selected = active.selected;
@@ -10896,6 +10907,7 @@
      };
      libraryAuthButton?.addEventListener("click", startMokeOAuth);
     const updateMokeStatus = async () => {
+      if (destroyed) return;
       const epoch = ++mokeStatusEpoch;
       if (!libraryStatus) return;
        if (selectedLibraryProvider !== "moke") {
@@ -10968,6 +10980,7 @@
             // Keep the last known auth state when status is temporarily unavailable.
           }
         }
+        if (epoch !== mokeStatusEpoch) return;
         if (mokeAuthState === "authorized" && mokeOAuthPollTimer) {
           window.clearTimeout(mokeOAuthPollTimer);
           mokeOAuthPollTimer = null;
@@ -12829,6 +12842,7 @@
     window.__codexGlobalBrowser?.hide();
     closeGlobalTaskMap({ immediate: true });
     destroyed = true;
+    mokeStatusEpoch += 1;
     themeMenuCleanup?.();
     themeMenuCleanup = null;
     document.getElementById("codex-task-asset-composer-chips")?.remove();
