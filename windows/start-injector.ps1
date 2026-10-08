@@ -53,8 +53,8 @@ try {
   }
   if ($Port -lt 1 -or $Port -gt 65535) { throw "Port must be between 1 and 65535" }
   $nodePath = Resolve-NodePath
-  $nodeMajor = [int]((& $nodePath -p "Number(process.versions.node.split('.')[0])").Trim())
-  if ($nodeMajor -lt 22) { throw "Node.js 22 or newer is required" }
+  try { $nodeVersion = [version]((& $nodePath -p "process.versions.node").Trim()) } catch { throw "Unable to read Node.js version from '$nodePath'" }
+  if ($nodeVersion -lt [version]'22.13.0') { throw "Node.js 22.13.0 or newer is required (found $nodeVersion)" }
 
   & (Join-Path $PSScriptRoot "stop-injector.ps1") -InstallDir $InstallDir -StateDir $StateDir
 

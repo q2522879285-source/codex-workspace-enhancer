@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.3-win10.1
+
+### Windows 10 适配 flavor
+
+- 提供独立的 `codex-sidebar-enhancer-win10.zip` 与 `codex-workspace-enhancer-skill-win10.zip` 发布包，通用 Windows 构建行为保持不变。
+- Win10 路径严格要求 Node.js 22.13.0+；缺少官方 `OpenAI.Codex` AppX/MSIX 时给出明确诊断。
+- 与 v3.0.3 通用包共用安装与状态目录，不能并行安装；切换时按升级流程保留配置、台账和资产。
+- 已完成静态适配、构建、全量测试与公开包扫描；当前主机为 Windows 11，未宣称真实 Windows 10 实机验收。
+
 ## 3.0.3
 
 ### 启动与侧栏适配

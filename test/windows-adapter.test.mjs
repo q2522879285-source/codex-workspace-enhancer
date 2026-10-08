@@ -4,6 +4,7 @@ import test from "node:test";
 
 const installer = await readFile(new URL("../install-windows.ps1", import.meta.url), "utf8");
 const launcher = await readFile(new URL("../windows/launch.ps1", import.meta.url), "utf8");
+const starter = await readFile(new URL("../windows/start-injector.ps1", import.meta.url), "utf8");
 const uninstaller = await readFile(new URL("../windows/uninstall.ps1", import.meta.url), "utf8");
 const injection = await readFile(new URL("../inject/conversation-preview.user.js", import.meta.url), "utf8");
 const injector = await readFile(new URL("../scripts/injector.mjs", import.meta.url), "utf8");
@@ -15,6 +16,13 @@ test("Windows launcher verifies that an occupied port belongs to Codex", () => {
   assert.match(launcher, /\/json\/list/);
   assert.match(launcher, /app:\/\/-\/index\.html/);
   assert.match(launcher, /already in use by another application/);
+});
+
+test("Windows path requires Node 22.13 and diagnoses non-AppX Codex installs", () => {
+  assert.match(starter, /22\.13\.0/);
+  assert.match(starter, /process\.versions\.node/);
+  assert.match(launcher, /Codex MSIX\/AppX package 'OpenAI\.Codex' was not found/);
+  assert.match(installer, /Codex MSIX\/AppX package 'OpenAI\.Codex' was not found/);
 });
 
 test("Windows uninstall restores shortcuts that existed before a fresh install", () => {

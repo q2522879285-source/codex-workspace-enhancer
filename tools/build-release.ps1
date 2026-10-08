@@ -1,4 +1,6 @@
 param(
+  [ValidateSet('windows','win10')]
+  [string]$Flavor = 'windows',
   [string]$OutputDir = (Join-Path (Split-Path -Parent $PSScriptRoot) '.release'),
   [string]$OnepagerPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'docs\codex-workspace-enhancer-onepage.png')
 )
@@ -12,6 +14,8 @@ if (-not $outputRoot.StartsWith($expectedParent.TrimEnd('\') + '\', [StringCompa
 }
 
 $workRoot = Join-Path $outputRoot '.build'
+$zipStem = if ($Flavor -eq 'win10') { 'codex-sidebar-enhancer-win10' } else { 'codex-sidebar-enhancer-windows' }
+$skillZipStem = if ($Flavor -eq 'win10') { 'codex-workspace-enhancer-skill-win10' } else { 'codex-workspace-enhancer-skill' }
 if (Test-Path -LiteralPath $outputRoot) { Remove-Item -LiteralPath $outputRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $workRoot -Force | Out-Null
 
@@ -49,12 +53,15 @@ try {
     $source = Join-Path $repoRoot $relative
     if (Test-Path -LiteralPath $source) { Copy-Tree $source (Join-Path $frontendRoot $relative) }
   }
+  if ($Flavor -eq 'win10') {
+    Copy-Tree (Join-Path $repoRoot 'README-Windows-win10.txt') (Join-Path $frontendRoot 'README-Windows-win10.txt')
+  }
   foreach ($relative in @('asset-console', 'assets', 'inject', 'lib', 'scripts', 'windows', 'templates', 'docs')) {
     Copy-Tree (Join-Path $repoRoot $relative) (Join-Path $frontendRoot $relative)
   }
   Copy-Backend (Join-Path $frontendRoot 'asset-browser')
 
-  $windowsZip = Join-Path $outputRoot 'codex-sidebar-enhancer-windows.zip'
+  $windowsZip = Join-Path $outputRoot ($zipStem + '.zip')
   Compress-Archive -Path (Join-Path $frontendRoot '*') -DestinationPath $windowsZip -CompressionLevel Optimal
   Write-ShaSidecar $windowsZip
 
@@ -97,12 +104,13 @@ try {
   $manifestJson = $manifest | ConvertTo-Json -Depth 8
   [IO.File]::WriteAllText((Join-Path $runtimeRoot 'manifest.sha256.json'), $manifestJson + "`n", (New-Object Text.UTF8Encoding($false)))
 
-  $skillZip = Join-Path $outputRoot 'codex-workspace-enhancer-skill.zip'
+  $skillZip = Join-Path $outputRoot ($skillZipStem + '.zip')
   Compress-Archive -Path $skillRoot -DestinationPath $skillZip -CompressionLevel Optimal
   Write-ShaSidecar $skillZip
 
   Remove-Item -LiteralPath $workRoot -Recurse -Force
   [pscustomobject]@{
+    flavor = $Flavor
     outputDir = $outputRoot
     windowsZip = $windowsZip
     windowsSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $windowsZip).Hash.ToLowerInvariant()

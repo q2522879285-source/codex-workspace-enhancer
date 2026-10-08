@@ -117,9 +117,14 @@ try {
   }
   $node = Get-Command node -ErrorAction Stop
   $nodeVersion = [version]((& $node.Source -p "process.versions.node").Trim())
-  if ($nodeVersion -lt [version]"22.13.0") { throw "Node.js 22.13 or newer is required" }
+  if ($nodeVersion -lt [version]"22.13.0") { throw "Node.js 22.13.0 or newer is required (found $nodeVersion)" }
 
-  $package = Get-AppxPackage -Name "OpenAI.Codex" -ErrorAction Stop | Sort-Object Version -Descending | Select-Object -First 1
+  try {
+    $package = Get-AppxPackage -Name "OpenAI.Codex" -ErrorAction Stop | Sort-Object Version -Descending | Select-Object -First 1
+  } catch {
+    throw "Codex MSIX/AppX package 'OpenAI.Codex' was not found. Install the official Codex Windows app before running this installer."
+  }
+  if (-not $package) { throw "Codex MSIX/AppX package 'OpenAI.Codex' was not found. Install the official Codex Windows app before running this installer." }
   $codexExe = Join-Path $package.InstallLocation "app\ChatGPT.exe"
   if (-not (Test-Path -LiteralPath $codexExe -PathType Leaf)) { throw "Codex executable not found" }
 

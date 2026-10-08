@@ -299,7 +299,12 @@ try {
     Write-LauncherLog "Selected startup animation '$($startupVideoSelection.name)' ($($startupSettings.mode))."
   }
   $startupOverlay = Start-StartupOverlay $startupVideoPath
-  $package = Get-AppxPackage -Name "OpenAI.Codex" -ErrorAction Stop | Sort-Object Version -Descending | Select-Object -First 1
+  try {
+    $package = Get-AppxPackage -Name "OpenAI.Codex" -ErrorAction Stop | Sort-Object Version -Descending | Select-Object -First 1
+  } catch {
+    throw "Codex MSIX/AppX package 'OpenAI.Codex' was not found. Install the official Codex Windows app before using the launcher."
+  }
+  if (-not $package) { throw "Codex MSIX/AppX package 'OpenAI.Codex' was not found. Install the official Codex Windows app before using the launcher." }
   $codexExe = Join-Path $package.InstallLocation "app\ChatGPT.exe"
   if (-not (Test-Path -LiteralPath $codexExe -PathType Leaf)) { throw "Codex executable not found" }
   $manifest = Get-AppxPackageManifest -Package $package.PackageFullName
