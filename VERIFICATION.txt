@@ -1,4 +1,4 @@
-Codex Workspace Enhancer 3.0.2 — Reproducible verification
+Codex Workspace Enhancer 3.0.3 — Reproducible verification
 
 These are commands to run, not a record of completed checks.
 Run from an unchanged source checkout. Tests must not use personal profiles,
@@ -6,7 +6,7 @@ cloud accounts, live messages, or author-owned project data.
 
 1. Source/runtime checks
    npm ci
-   npm test
+   npm test -- --test-concurrency=1
    npm run check:public
    node --check inject/conversation-preview.user.js
    node --check inject/global-task-map.js

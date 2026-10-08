@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -25,9 +24,9 @@ async function inject(page, content) {
 const rows = ids.map((id, i) => `<div role="button" tabindex="0" data-app-action-sidebar-thread-row data-app-action-sidebar-thread-id="${id}" data-app-action-sidebar-thread-title="Task ${i ? 'B' : 'A'}" ${i ? '' : 'data-app-action-sidebar-thread-selected="true"'}><span data-thread-title-trigger="true"><span data-thread-title>Task ${i ? 'B' : 'A'}</span></span></div>`).join('');
 const html = `<!doctype html><html data-theme="dark"><head><style>body{margin:0;display:flex;height:900px}#app-shell-sidebar{width:280px}main{width:1100px} [data-app-shell-thread-edge-divider],#thread-host{height:800px;width:1050px}[data-app-action-timeline-scroll]{height:500px} [data-app-action-sidebar-thread-row]{height:60px} [data-response-annotation-conversation]{height:40px}</style></head><body><aside id="app-shell-sidebar"><div data-app-action-sidebar-scroll><nav><div><button>新对话</button></div><div><button>拉取请求</button><button>插件</button><button data-sidebar-destination="builtin:orbit">Your dot</button></div></nav>${['置顶','项目','最近'].map(name => `<section><div class="group/nav-section-title"><button data-app-action-sidebar-section-toggle aria-expanded="true"><span class="min-w-0 truncate">${name}</span></button></div>${name === '最近' ? rows : ''}</section>`).join('')}</div></aside><main data-app-shell-main-content-layout="thread-edge-scroll"><div data-app-shell-thread-edge-divider><div id="thread-host"><div data-app-action-timeline-scroll><div data-thread-find-target="conversation"><div data-turn-key="turn"><div data-local-conversation-user-anchor="true"><div data-user-message-bubble="true">Goal A</div></div><div data-local-conversation-final-assistant="true"><div data-response-annotation-conversation="${ids[0]}" data-response-annotation-target="final"><div data-markdown-text-style="assistant-message">Progress A</div></div></div></div></div></div><div data-codex-composer-root data-composer-placement="thread"><div data-above-composer-portal="true" data-above-composer-conversation-id="${ids[0]}"></div><div contenteditable="true" role="textbox"></div></div></div></div></main></body></html>`;
 
-async function fixture(browser, url) {
+async function fixture(browser, url = 'http://127.0.0.1') {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  await context.route('**/*', route => route.request().url().startsWith(url) ? route.continue() : route.abort());
+  await context.route('**/*', route => route.request().url().startsWith(url) ? route.fulfill({ contentType: 'text/html; charset=utf-8', body: html }) : route.abort());
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
@@ -65,23 +64,19 @@ function snapshot(page) {
 
 test('complete renderer initializes and survives task/refresh/reinjection pressure in isolated Chromium', { timeout: 180_000 }, async t => {
   if (!chromium) return t.skip('Existing Playwright unavailable; set RENDERER_PLAYWRIGHT. No browser validation performed.');
-  const server = createServer((request, response) => { response.setHeader('Content-Type', 'text/html; charset=utf-8'); response.end(html); });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
-  const url = `http://127.0.0.1:${server.address().port}`;
   const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
   t.after(() => browser.close());
   const started = performance.now();
   if (process.env.RENDERER_BASELINE_REF) {
     const baseline = execFileSync('git', ['show', `${process.env.RENDERER_BASELINE_REF}:inject/conversation-preview.user.js`], { cwd: new URL('..', import.meta.url), encoding: 'utf8' });
-    const old = await fixture(browser, url);
+    const old = await fixture(browser);
     await inject(old.page, baseline);
     await old.page.waitForTimeout(150);
     assert.ok(old.errors.some(error => /currentConversationThreadId is not defined/.test(error)), JSON.stringify(old.errors));
     t.diagnostic(`Baseline ${process.env.RENDERER_BASELINE_REF}: missing-helper ReferenceError reproduced by complete script.`);
     await old.context.close();
   }
-  const { page, context, errors } = await fixture(browser, url);
+  const { page, context, errors } = await fixture(browser);
   t.after(() => context.close());
   await inject(page, source);
   await page.waitForTimeout(200);
@@ -175,12 +170,9 @@ test('complete renderer initializes and survives task/refresh/reinjection pressu
 
 test('renderer heap and listener growth after warm-up in isolated Chromium', { timeout: 120_000 }, async t => {
   if (!chromium) return t.skip('Existing Playwright unavailable; no browser validation performed.');
-  const server = createServer((request, response) => { response.setHeader('Content-Type', 'text/html; charset=utf-8'); response.end(html); });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
   const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
   t.after(() => browser.close());
-  const { page, context, errors } = await fixture(browser, `http://127.0.0.1:${server.address().port}`);
+  const { page, context, errors } = await fixture(browser);
   t.after(() => context.close());
   const cdp = await context.newCDPSession(page);
   const measurements = [];
@@ -214,13 +206,10 @@ test('renderer heap and listener growth after warm-up in isolated Chromium', { t
 
 test('destroy prevents retries from a delayed MCP failure in isolated Chromium', { timeout: 30_000 }, async t => {
   if (!chromium) return t.skip('Existing Playwright unavailable; no browser validation performed.');
-  const server = createServer((request, response) => { response.setHeader('Content-Type', 'text/html; charset=utf-8'); response.end(html); });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
   const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
   t.after(() => browser.close());
   for (const phase of ['config/read', 'mcpServerStatus/list']) {
-    const { page, context, errors } = await fixture(browser, `http://127.0.0.1:${server.address().port}`);
+    const { page, context, errors } = await fixture(browser);
     t.after(() => context.close());
     await page.evaluate(() => { window.fixtureDeferMcp = true; });
     await inject(page, source);

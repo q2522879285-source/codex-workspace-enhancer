@@ -1311,6 +1311,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
+let lastInjectorErrorDetail = null;
 try {
   while (!stopped) {
     try {
@@ -1327,7 +1328,13 @@ try {
           `Codex conversation preview ready${stable ? "" : " (stability timeout fallback)"}\n`,
         );
       }
+      lastInjectorErrorDetail = null;
     } catch (error) {
+      const detail = String(error?.stack || error?.message || error);
+      if (detail !== lastInjectorErrorDetail) {
+        process.stderr.write(`Injector on 127.0.0.1:${options.port}: ${detail}${options.watch ? "\nRetrying in 5 seconds." : ""}\n`);
+        lastInjectorErrorDetail = detail;
+      }
       attachedTargetId = null;
       registeredScriptIdentifier = null;
       assetConsoleRequestGeneration += 1;

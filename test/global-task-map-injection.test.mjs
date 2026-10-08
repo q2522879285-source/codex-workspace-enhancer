@@ -4,6 +4,20 @@ import test from "node:test";
 import vm from "node:vm";
 
 const source = await readFile(new URL("../inject/conversation-preview.user.js", import.meta.url), "utf8");
+const visibleSidebarHelpers = source.slice(source.indexOf("  function isVisibleNode("), source.indexOf("  function nativeSidebarHost("));
+
+function sidebarFixture() {
+  const stale = { inert: false };
+  const live = { inert: false };
+  const scrolls = [
+    { isConnected: true, checkVisibility: () => false, parentElement: stale },
+    { isConnected: true, checkVisibility: () => true, parentElement: live },
+  ];
+  return { stale, live, querySelectorAll(selector) {
+    assert.equal(selector, "[data-app-action-sidebar-scroll]");
+    return scrolls;
+  } };
+}
 
 test("global map closes without replacing the conversation, restores inert and focus, and cleans up failed mounts", () => {
   const block = source.slice(source.indexOf("  let globalTaskMap = null;"), source.indexOf("  function nativeShortcutSources()"));
@@ -12,8 +26,10 @@ test("global map closes without replacing the conversation, restores inert and f
   let bridge, mounts = 0, disposed = 0, focused = 0, fail = false;
   const content = { inert: false, getBoundingClientRect: () => ({ left: 200, top: 48, width: 1000, bottom: 800 }) };
   const opener = { isConnected: true, focus: () => focused++ };
+  const sidebar = sidebarFixture();
   const document = {
     activeElement: opener,
+    querySelectorAll: sidebar.querySelectorAll,
     querySelector: selector => selector.includes("main-content-layout") ? content : null,
     createElement: () => ({ style: {}, setAttribute() {}, attachShadow: () => ({}), focus() {}, remove() { this.isConnected = false; } }),
     body: { appendChild: node => { node.isConnected = true; } },
@@ -28,16 +44,19 @@ test("global map closes without replacing the conversation, restores inert and f
   const navigated = [];
   const context = vm.createContext({ document, window, innerHeight: 800, ResizeObserver: class { observe() {} disconnect() {} },
     navigateToCodexThread: id => { navigated.push(id); return true; }, ensureShortcutGrid() {} });
-  vm.runInContext(`${block}\nthis.api = {openGlobalTaskMap,closeGlobalTaskMap,getGlobalTaskMapState};`, context);
+  vm.runInContext(`${visibleSidebarHelpers}\n${block}\nthis.api = {openGlobalTaskMap,closeGlobalTaskMap,getGlobalTaskMapState};`, context);
   const api = context.api;
   assert.equal(api.openGlobalTaskMap(), true);
   assert.equal(content.inert, true);
+  assert.equal(sidebar.live.inert, true);
+  assert.equal(sidebar.stale.inert, false);
   assert.equal(api.openGlobalTaskMap(), true);
   assert.equal(mounts, 1);
   assert.equal(api.getGlobalTaskMapState().open, true);
   assert.equal(api.getGlobalTaskMapState().state.edited, true);
   bridge.close();
   assert.equal(content.inert, false);
+  assert.equal(sidebar.live.inert, false);
   assert.equal(focused, 1);
   assert.equal(disposed, 1);
   assert.equal(listeners.size, 0);
@@ -51,6 +70,7 @@ test("global map closes without replacing the conversation, restores inert and f
   fail = true;
   assert.throws(() => api.openGlobalTaskMap(), /mount failed/);
   assert.equal(content.inert, false);
+  assert.equal(sidebar.live.inert, false);
   assert.equal(api.getGlobalTaskMapState().open, false);
 });
 
@@ -59,15 +79,16 @@ test("catalog bridge resolves responses and ignores a late response after close"
   const block = source.slice(source.indexOf("  let globalTaskMap = null;"), source.indexOf("  function nativeShortcutSources()"));
   let bridge, request;
   const content = { inert: false };
+  const sidebar = sidebarFixture();
   const window = { codexSidebarTaskCatalog: value => { request = JSON.parse(value); },
     __codexGlobalTaskMap: { mount: (root, next) => { bridge = next; return { destroy() {} }; } },
     addEventListener() {}, removeEventListener() {} };
-  const document = { querySelector: s => s.includes("main-content-layout") ? content : null,
+  const document = { querySelectorAll: sidebar.querySelectorAll, querySelector: s => s.includes("main-content-layout") ? content : null,
     createElement: () => ({ style: {}, setAttribute() {}, attachShadow: () => ({}), remove() {} }),
     body: { appendChild() {} } };
   const context = vm.createContext({ document, window, crypto: { randomUUID: () => "catalog-request" },
     setTimeout, clearTimeout, ResizeObserver: class { observe() {} disconnect() {} }, ensureShortcutGrid() {} });
-  vm.runInContext(`${block}\nthis.api = {openGlobalTaskMap,closeGlobalTaskMap,setTaskCatalog};`, context);
+  vm.runInContext(`${visibleSidebarHelpers}\n${block}\nthis.api = {openGlobalTaskMap,closeGlobalTaskMap,setTaskCatalog};`, context);
   context.api.openGlobalTaskMap();
   const result = bridge.listThreads({ query: "find" });
   assert.equal(request.options.query, "find");
@@ -85,15 +106,16 @@ test("CortexDB bridge sends snapshots and queries, reports errors, and cancels c
   const block = source.slice(source.indexOf("  let globalTaskMap = null;"), source.indexOf("  function nativeShortcutSources()"));
   let bridge, request, sequence = 0;
   const content = { inert: false };
+  const sidebar = sidebarFixture();
   const window = { codexSidebarTaskMapIndex: value => { request = JSON.parse(value); },
     __codexGlobalTaskMap: { mount: (root, next) => { bridge = next; return { destroy() {} }; } },
     addEventListener() {}, removeEventListener() {} };
-  const document = { querySelector: s => s.includes("main-content-layout") ? content : null,
+  const document = { querySelectorAll: sidebar.querySelectorAll, querySelector: s => s.includes("main-content-layout") ? content : null,
     createElement: () => ({ style: {}, setAttribute() {}, attachShadow: () => ({}), remove() {} }),
     body: { appendChild() {} } };
   const context = vm.createContext({ document, window, crypto: { randomUUID: () => `index-${++sequence}` },
     setTimeout, clearTimeout, ResizeObserver: class { observe() {} disconnect() {} }, ensureShortcutGrid() {} });
-  vm.runInContext(`${block}\nthis.api = {openGlobalTaskMap,closeGlobalTaskMap,setTaskCatalog};`, context);
+  vm.runInContext(`${visibleSidebarHelpers}\n${block}\nthis.api = {openGlobalTaskMap,closeGlobalTaskMap,setTaskCatalog};`, context);
   context.api.openGlobalTaskMap();
   const snapshot = { version: 1, items: [{ id: "stable" }], directions: [], catalog: [] };
   const syncing = bridge.syncIndex(snapshot);

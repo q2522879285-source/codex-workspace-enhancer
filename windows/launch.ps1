@@ -17,6 +17,23 @@ $startupVideoPath = $null
 $startupOverlayPath = Join-Path $PSScriptRoot "startup-overlay.ps1"
 $injectorLogPath = Join-Path $StateDir "injector.log"
 
+function Resolve-StartupPort([int]$DefaultPort, [bool]$ExplicitPort) {
+  if ($ExplicitPort) { return $DefaultPort }
+  $manifestPath = Join-Path $InstallDir "install-manifest.json"
+  if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+    $manifestPort = (Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json).port
+    if ($manifestPort -ge 1 -and $manifestPort -le 65535) { $DefaultPort = [int]$manifestPort }
+  }
+  $activePortPath = Join-Path $StateDir "active-port.txt"
+  if (Test-Path -LiteralPath $activePortPath -PathType Leaf) {
+    $savedPort = 0
+    if ([int]::TryParse((Get-Content -LiteralPath $activePortPath -Raw).Trim(), [ref]$savedPort) -and $savedPort -gt 0 -and $savedPort -le 65535 -and (Test-CodexDebugPort $savedPort)) {
+      return $savedPort
+    }
+  }
+  return $DefaultPort
+}
+
 function Write-LauncherLog([string]$Message) {
   Add-Content -LiteralPath $launcherLog -Value "$(Get-Date -Format o) $Message" -Encoding utf8
 }
@@ -263,7 +280,16 @@ function Get-AvailableDebugPort([int]$PreferredPort) {
   }
 }
 
+# Keep shared overlay flags and the Codex restart owned by one launcher.
 try {
+  $launchLock = [IO.File]::Open((Join-Path $StateDir "launcher.lock"), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+} catch [IO.IOException] {
+  exit 0
+}
+
+try {
+  $Port = Resolve-StartupPort $Port $PSBoundParameters.ContainsKey('Port')
+  if ($Port -lt 1 -or $Port -gt 65535) { throw "Port must be between 1 and 65535" }
   Write-LauncherLog "Launcher started (PID $PID)."
   $startupSettings = Read-StartupSettings
   $startupVideoCatalog = Get-StartupVideoCatalog $startupSettings
@@ -273,12 +299,6 @@ try {
     Write-LauncherLog "Selected startup animation '$($startupVideoSelection.name)' ($($startupSettings.mode))."
   }
   $startupOverlay = Start-StartupOverlay $startupVideoPath
-  if (-not $PSBoundParameters.ContainsKey('Port') -and (Test-Path -LiteralPath $activePortPath)) {
-    $savedPort = 0
-    if ([int]::TryParse((Get-Content -LiteralPath $activePortPath -Raw).Trim(), [ref]$savedPort) -and $savedPort -gt 0 -and $savedPort -le 65535) {
-      $Port = $savedPort
-    }
-  }
   $package = Get-AppxPackage -Name "OpenAI.Codex" -ErrorAction Stop | Sort-Object Version -Descending | Select-Object -First 1
   $codexExe = Join-Path $package.InstallLocation "app\ChatGPT.exe"
   if (-not (Test-Path -LiteralPath $codexExe -PathType Leaf)) { throw "Codex executable not found" }
@@ -371,4 +391,6 @@ try {
     "Error"
   ) | Out-Null
   exit 1
+} finally {
+  $launchLock.Dispose()
 }

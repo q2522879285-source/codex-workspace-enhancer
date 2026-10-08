@@ -199,11 +199,11 @@ try {
       }
     }
     $shortcutsTouched = $true
-    $runtimeArguments = "-Port $Port -InstallDir `"$InstallDir`" -StateDir `"$StateDir`""
+    $runtimeArguments = "-InstallDir `"$InstallDir`" -StateDir `"$StateDir`""
     $enhancerIcon = Join-Path $InstallDir "assets\codex-sidebar-enhancer.ico"
     New-Shortcut -Path $desktopShortcut -ScriptPath $launcherScript -IconPath $enhancerIcon -ScriptArguments $runtimeArguments
     New-Shortcut -Path $programShortcut -ScriptPath $launcherScript -IconPath $enhancerIcon -ScriptArguments $runtimeArguments
-    New-Shortcut -Path $uninstallShortcut -ScriptPath $uninstallScript -IconPath $enhancerIcon -ScriptArguments $runtimeArguments -Hidden $false
+    New-Shortcut -Path $uninstallShortcut -ScriptPath $uninstallScript -IconPath $enhancerIcon -ScriptArguments "$runtimeArguments -Port $Port" -Hidden $false
     New-Shortcut -Path $startupShortcut -ScriptPath $startupScript -IconPath $enhancerIcon -ScriptArguments $runtimeArguments
   }
 
