@@ -44,6 +44,7 @@ try {
       ariaLabel: bar.querySelector('[role="tablist"]')?.getAttribute("aria-label"),
       tabs: tabs.map((tab) => ({
         name: tab.dataset.codexSidebarSectionTab,
+        label: tab.textContent.trim(),
         selected: tab.getAttribute("aria-selected"),
         tabIndex: tab.tabIndex,
         controls: tab.getAttribute("aria-controls"),
@@ -58,9 +59,11 @@ try {
       actionLabels: Array.from(actions?.querySelectorAll("button") || []).map((button) => button.getAttribute("aria-label")),
       nativeExpanded: Object.fromEntries(["置顶", "项目", "最近"].map((name) => {
         const source = Array.from(document.querySelectorAll('button[data-app-action-sidebar-section-toggle]'))
-          .find((button) => button.textContent.trim() === name);
+          .find((button) => button.textContent.trim() === (name === "置顶" ? "重要" : name));
         return [name, source?.getAttribute("aria-expanded")];
       })),
+      nativeLabels: Array.from(document.querySelectorAll('button[data-app-action-sidebar-section-toggle]'))
+        .map((button) => button.textContent.trim()),
       nativeHeadingsHidden: Array.from(document.querySelectorAll('[data-codex-sidebar-section-heading-hidden="true"]'))
         .every((heading) => getComputedStyle(heading).display === "none"),
     };
@@ -70,13 +73,23 @@ try {
   assert.ok(actual, "section tabs must exist");
   assert.equal(actual.role, "tablist");
   assert.equal(actual.ariaLabel, "对话分组");
-  assert.deepEqual(actual.tabs.map((tab) => tab.name), ["置顶", "项目", "最近"]);
+  assert.deepEqual(actual.tabs.map((tab) => tab.name), ["最近", "项目"]);
+  assert.deepEqual(actual.tabs.map((tab) => tab.label), ["日常", "工作"]);
   assert.equal(actual.tabs.filter((tab) => tab.selected === "true").length, 1);
   assert.equal(actual.tabs.filter((tab) => tab.tabIndex === 0).length, 1);
-  assert.deepEqual(actual.panels.map((panel) => panel.name), ["置顶", "项目", "最近"]);
+  assert.deepEqual(actual.panels.map((panel) => panel.name).sort(), ["项目", "最近"]);
   assert.ok(actual.panels.every((panel) => panel.role === "tabpanel" && panel.labelledBy));
   assert.equal(actual.panels.filter((panel) => !panel.hidden).length, 1);
   assert.equal(actual.nativeHeadingsHidden, true);
+  assert.ok(actual.nativeLabels.includes("重要"), "native pinned group must remain visible as 重要");
+
+  await client.evaluate(`(() => {
+    const button = Array.from(document.querySelectorAll('button[data-app-action-sidebar-section-toggle]'))
+      .find((candidate) => candidate.textContent.trim() === "重要");
+    if (button?.getAttribute("aria-expanded") === "true") button.click();
+  })()`);
+  assert.equal(await waitFor(client, `Array.from(document.querySelectorAll('button[data-app-action-sidebar-section-toggle]')).find((button) => button.textContent.trim() === "重要")?.getAttribute("aria-expanded") === "false"`), true,
+    "important native group must stay collapsed when requested");
 
   await client.evaluate(`document.querySelector('[data-codex-sidebar-section-tab="项目"]')?.click()`);
   assert.equal(await waitFor(client, `document.querySelector('[data-codex-sidebar-section-tab="项目"]')?.getAttribute("aria-selected") === "true"`), true);
@@ -105,15 +118,8 @@ try {
     "native project options menu must still open from the tab toolbar");
   await client.evaluate(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }))`);
 
-  await client.evaluate(`document.querySelector('[data-codex-sidebar-section-tab="置顶"]')?.click()`);
-  assert.equal(await waitFor(client, `document.querySelector('[data-codex-sidebar-section-tab="置顶"]')?.getAttribute("aria-selected") === "true"`), true);
-  assert.equal(await waitFor(client, `Array.from(document.querySelectorAll('button[data-app-action-sidebar-section-toggle]')).find((button) => button.textContent.trim() === "置顶")?.getAttribute("aria-expanded") === "true"`), true);
-  actual = await inspect();
-  assert.equal(actual.actionsHidden, true);
-  assert.deepEqual(actual.panels.filter((panel) => !panel.hidden).map((panel) => panel.name), ["置顶"]);
-
   await client.evaluate(`(() => {
-    const tab = document.querySelector('[data-codex-sidebar-section-tab="置顶"]');
+    const tab = document.querySelector('[data-codex-sidebar-section-tab="最近"]');
     tab?.focus();
     tab?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
   })()`);

@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { connectMainCodex } from "./cdp-client.mjs";
 
 const STATE_KEY = "codex-conversation-preview:home-projects-state";
-const CURRENT_THREAD_ID = process.env.CODEX_THREAD_ID || "019fe64a-ace1-7793-92aa-4d91195005ec";
+const CURRENT_THREAD_ID = process.env.CODEX_THREAD_ID || "00000000-0000-7000-8000-000000000001";
 const THREAD_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 

@@ -43,7 +43,11 @@
   const SKILL_NATIVE_EXTRA_ATTR = "data-codex-skill-native-extra";
   const SECTION_TABS_ID = "codex-sidebar-section-tabs";
   const SECTION_TAB_STORAGE_KEY = "codex-conversation-preview:section-tab";
-  const SECTION_NAMES = ["置顶", "项目", "最近"];
+  const BASE_SECTION_NAMES = ["最近", "项目"];
+  const NATIVE_SECTION_NAMES = ["置顶", "项目", "最近"];
+  const SECTION_LOGICAL_NAME_ATTR = "data-codex-sidebar-section-logical-name";
+  const SECTION_ORIGINAL_LABEL_ATTR = "data-codex-sidebar-section-original-label";
+  let SECTION_NAMES = [...BASE_SECTION_NAMES];
   const FOLDER_SWITCHER_ID = "codex-sidebar-folder-switcher";
   const FOLDER_STORAGE_KEY = "codex-conversation-preview:folder-id";
   const THREAD_OVERVIEW_RAIL_ID = "codex-thread-overview-rail";
@@ -220,9 +224,10 @@
   try { overviewCollapsed = localStorage.getItem(OVERVIEW_COLLAPSED_KEY) !== "false"; } catch {}
   try {
     const savedSectionTab = localStorage.getItem(SECTION_TAB_STORAGE_KEY);
-    if (SECTION_NAMES.includes(savedSectionTab)) {
-      activeSectionTab = savedSectionTab;
+    if (typeof savedSectionTab === "string" && savedSectionTab.trim()) {
+      activeSectionTab = savedSectionTab === "项目" ? "项目" : "最近";
       sectionTabRestored = true;
+      if (savedSectionTab !== activeSectionTab) localStorage.setItem(SECTION_TAB_STORAGE_KEY, activeSectionTab);
     }
   } catch {}
   try { activeFolderId = localStorage.getItem(FOLDER_STORAGE_KEY) || null; } catch {}
@@ -7955,7 +7960,8 @@
   function handleGlobalSearchKeydown(event) { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openGlobalSearch(); } else if (event.key === "Escape" && globalSearchOpen) { event.preventDefault(); closeGlobalSearch(); } }
 
   function sectionLabel(button) {
-    return button?.querySelector("span.min-w-0.truncate")?.textContent?.trim()
+    return button?.getAttribute(SECTION_LOGICAL_NAME_ATTR)
+      || button?.querySelector("span.min-w-0.truncate")?.textContent?.trim()
       || button?.textContent?.trim()
       || "";
   }
@@ -7985,7 +7991,12 @@
   }
 
   function nativeSectionSources() {
-    const items = SECTION_NAMES.map(nativeSectionSource);
+    const nativeNames = Array.from(document.querySelectorAll("button[data-app-action-sidebar-section-toggle]"))
+      .filter((button) => !button.closest(`#${SECTION_TABS_ID}`))
+      .map(sectionLabel)
+      .filter(Boolean);
+    const names = [...new Set([...NATIVE_SECTION_NAMES, ...nativeNames])];
+    const items = names.map(nativeSectionSource);
     if (items.some((item) => !item)) return null;
     const common = commonAncestor(items.map((item) => item.section));
     const scroll = visibleSidebarScroll();
@@ -8000,7 +8011,10 @@
   }
 
   function sectionIdPart(name) {
-    return name === "置顶" ? "pinned" : name === "项目" ? "projects" : "recent";
+    if (name === "置顶") return "pinned";
+    if (name === "项目") return "projects";
+    if (name === "最近") return "recent";
+    return `dynamic-${Array.from(String(name)).map((char) => char.codePointAt(0).toString(16)).join("-")}`;
   }
 
   function setNativeSectionExpanded(item, desired) {
@@ -8020,25 +8034,40 @@
     if (!bar || !activeSectionTab) return;
     for (const item of items) {
       const selected = item.name === activeSectionTab;
+      const visible = activeSectionTab === "项目" ? item.name === "项目" : item.name !== "项目";
       const wasVisible = !item.panelHost.hidden && !item.section.hidden;
-      const part = sectionIdPart(item.name);
-      const tab = bar.querySelector(`[data-codex-sidebar-section-tab="${item.name}"]`);
-      tab?.setAttribute("aria-selected", String(selected));
-      if (tab) tab.tabIndex = selected ? 0 : -1;
-      item.panelHost.hidden = !selected;
-      item.section.hidden = !selected;
-      item.section.id = `codex-sidebar-section-panel-${part}`;
-      item.section.setAttribute("role", "tabpanel");
-      item.section.setAttribute("aria-labelledby", `codex-sidebar-section-tab-${part}`);
-      item.section.dataset.codexSidebarSectionPanel = item.name;
-      if (selected && !wasVisible) {
-        item.panelHost.dataset.codexSidebarSectionPanelEnter = "true";
-        requestAnimationFrame(() => {
-          if (item.panelHost.isConnected) delete item.panelHost.dataset.codexSidebarSectionPanelEnter;
-        });
+      const tab = bar.querySelector(`[data-codex-sidebar-section-tab="${CSS.escape(item.name)}"]`);
+      if (tab) {
+        const part = sectionIdPart(item.name);
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        item.section.id = `codex-sidebar-section-panel-${part}`;
+        item.section.setAttribute("role", "tabpanel");
+        item.section.setAttribute("aria-labelledby", `codex-sidebar-section-tab-${part}`);
+        item.section.dataset.codexSidebarSectionPanel = item.name;
+      } else if (item.section.dataset.codexSidebarSectionPanel === item.name) {
+        item.section.removeAttribute("data-codex-sidebar-section-panel");
+        item.section.removeAttribute("role");
+        item.section.removeAttribute("aria-labelledby");
+        item.section.removeAttribute("id");
       }
-      item.heading.dataset.codexSidebarSectionHeadingHidden = "true";
-      if (syncNative) setNativeSectionExpanded(item, selected);
+      item.panelHost.hidden = !visible;
+      item.section.hidden = !visible;
+      if (visible && !wasVisible) {
+        item.panelHost.dataset.codexSidebarSectionPanelEnter = "true";
+        requestAnimationFrame(() => { if (item.panelHost.isConnected) delete item.panelHost.dataset.codexSidebarSectionPanelEnter; });
+      }
+      if (item.name === "项目" || item.name === "最近") item.heading.dataset.codexSidebarSectionHeadingHidden = "true";
+      else item.heading.removeAttribute("data-codex-sidebar-section-heading-hidden");
+      if (item.name === "置顶") {
+        const label = item.button.querySelector("span.min-w-0.truncate");
+        if (label) {
+          if (!item.button.hasAttribute(SECTION_ORIGINAL_LABEL_ATTR)) item.button.setAttribute(SECTION_ORIGINAL_LABEL_ATTR, label.textContent.trim());
+          item.button.setAttribute(SECTION_LOGICAL_NAME_ATTR, "置顶");
+          label.textContent = "重要";
+        }
+      }
+      if (syncNative && (item.name === "项目" || item.name === "最近")) setNativeSectionExpanded(item, selected);
     }
     const actions = bar.querySelector("[data-codex-sidebar-project-actions]");
     if (actions) actions.hidden = activeSectionTab !== "项目";
@@ -8055,9 +8084,9 @@
       ? { currentThreadId, targetThreadId }
       : null;
     try { localStorage.setItem(SECTION_TAB_STORAGE_KEY, name); } catch {}
-    const items = SECTION_NAMES.map((sectionName) => sectionSources.get(sectionName)).filter(Boolean);
+    const items = Array.from(sectionSources.values());
     updateSectionTabState(items);
-    const tab = document.querySelector(`#${SECTION_TABS_ID} [data-codex-sidebar-section-tab="${name}"]`);
+    const tab = document.querySelector(`#${SECTION_TABS_ID} [data-codex-sidebar-section-tab="${CSS.escape(name)}"]`);
     if (focus) tab?.focus();
     scheduleSync();
   }
@@ -8091,7 +8120,7 @@
       tab.setAttribute("role", "tab");
       tab.setAttribute("aria-controls", `codex-sidebar-section-panel-${part}`);
       tab.dataset.codexSidebarSectionTab = name;
-      tab.textContent = name;
+      tab.textContent = name === "项目" ? "工作" : name === "最近" ? "日常" : name;
       tab.onclick = () => selectSectionTab(name);
       tab.onkeydown = handleSectionTabKeydown;
       tablist.appendChild(tab);
@@ -8123,6 +8152,13 @@
     document.querySelectorAll("[data-codex-sidebar-section-heading-hidden]").forEach((heading) => {
       heading.removeAttribute("data-codex-sidebar-section-heading-hidden");
     });
+    document.querySelectorAll(`[${SECTION_ORIGINAL_LABEL_ATTR}]`).forEach((button) => {
+      const label = button.querySelector("span.min-w-0.truncate");
+      const original = button.getAttribute(SECTION_ORIGINAL_LABEL_ATTR);
+      if (label && original) label.textContent = original;
+      button.removeAttribute(SECTION_ORIGINAL_LABEL_ATTR);
+      button.removeAttribute(SECTION_LOGICAL_NAME_ATTR);
+    });
     document.querySelectorAll("[data-codex-sidebar-section-panel]").forEach((section) => {
       section.removeAttribute("data-codex-sidebar-section-panel");
       section.removeAttribute("role");
@@ -8144,12 +8180,8 @@
     const scroll = visibleSidebarScroll();
     let controls = ensureSidebarControlsHost(scroll);
     if (!controls) return;
-    if (!activeSectionTab) {
-      const hasProjects = Boolean(scroll?.querySelector("[data-app-action-sidebar-project-row]"));
-      activeSectionTab = hasProjects
-        ? sources.items.find((item) => item.button.getAttribute("aria-expanded") === "true")?.name || "项目"
-        : "最近";
-    }
+    if (!SECTION_NAMES.includes(activeSectionTab)) activeSectionTab = null;
+    if (!activeSectionTab) activeSectionTab = "最近";
     let bar = document.getElementById(SECTION_TABS_ID);
     const projectActions = sources.items.find((item) => item.name === "项目")?.actions;
     const needsRebuild = bar?.dataset.codexPreviewRuntime !== RUNTIME_TOKEN
