@@ -1,12 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { classifyAsset } from "../asset-browser/asset-classification.js";
 
 const injectionPath = new URL("../inject/conversation-preview.user.js", import.meta.url);
 const injectorPath = new URL("../scripts/injector.mjs", import.meta.url);
 const embeddedIndexPath = new URL("../asset-console/public/index.html", import.meta.url);
 const embeddedAppPath = new URL("../asset-console/public/app.js", import.meta.url);
 const embeddedCssPath = new URL("../asset-console/public/ui-v3.css", import.meta.url);
+
+test("asset classification keeps only explicit final outputs official", () => {
+  const group = (asset) => classifyAsset(asset).group;
+  assert.equal(group({ name: "photo.png", kind: "image" }), "review");
+  assert.equal(group({ category: "generatedAsset", kind: "image", name: "take.png" }), "review");
+  assert.equal(group({ kind: "frame", relPath: "frames/shot-01.png" }), "review");
+  assert.equal(group({ kind: "video", relPath: "drafts/shot.mp4" }), "review");
+  assert.equal(group({ kind: "video", relPath: "exports/shot.mp4" }), "review");
+  assert.equal(group({ kind: "video", relPath: "final/shot.mp4" }), "review");
+  assert.equal(group({ smartGroup: "official", kind: "image", name: "chosen.png" }), "official");
+  assert.equal(group({ managed: true, projectId: "pending-review", relPath: "exports/shot.mp4", classification: { source: "registry", group: "official" } }), "review");
+  assert.equal(group({ managed: true, projectId: "project-a", relPath: "takes/shot.mp4", classification: { source: "registry", group: "official" } }), "review");
+  assert.equal(group({ managed: true, projectId: "project-a", relPath: "takes/shot.mp4", userStatus: "approved", classification: { source: "registry", group: "official" } }), "official");
+  assert.equal(group({ managed: true, projectId: "project-a", relPath: "exports/shot.mp4", deliveryStatus: "delivered", classification: { source: "registry", group: "review" } }), "review");
+  assert.equal(group({ managed: true, projectId: "project-a", relPath: "exports/shot.mp4", deliveryStatus: "delivered", classification: { source: "registry", group: "official" } }), "official");
+});
 
 function extractFunctionSource(source, name) {
   const match = new RegExp(`(?:async\\s+)?function\\s+${name}\\(`).exec(source);
@@ -109,6 +126,44 @@ test("the embedded workspace separates project and shared scopes with inline tri
   assert.match(html, /id="embeddedTypeFilter"/);
   assert.match(app, /function syncEmbeddedFilterControls/);
   assert.match(css, /\.embedded-filter-menu/);
+});
+
+test("embedded asset browsing defaults to official assets but can be cleared", async () => {
+  const app = await readFile(embeddedAppPath, "utf8");
+  assert.match(app, /smartGroupFilter: codexEmbedded \? "official" : ""/);
+  assert.match(app, /function clearAssetDiscoveryFilters[\s\S]*?state\.smartGroupFilter = ""/);
+  assert.match(app, /const active = group === state\.smartGroupFilter/);
+  assert.match(app, /button\.classList\.toggle\("active", active\)/);
+  assert.match(app, /button\.setAttribute\("aria-pressed", String\(active\)\)/);
+});
+
+test("embedded exclusions give clear feedback and do not stick open without Popover API", async () => {
+  const [html, app, css] = await Promise.all([
+    readFile(embeddedIndexPath, "utf8"),
+    readFile(embeddedAppPath, "utf8"),
+    readFile(embeddedCssPath, "utf8"),
+  ]);
+  assert.match(html, /id="codexExclusionsButton"[^>]*aria-expanded="false"/);
+  assert.match(app, /typeof exclusionsPopover\.showPopover === "function"/);
+  assert.match(app, /exclusionsButton\.removeAttribute\("popovertarget"\)/);
+  assert.match(app, /exclusionsPopover\.hidden = true/);
+  assert.match(css, /#codexExclusionsButton\[aria-expanded="true"\]/);
+  assert.match(css, /#codexExclusionsPopover\[hidden\]\s*\{\s*display: none !important;/);
+});
+
+test("embedded asset cards expose path copying and keep exclusions inside the viewport", async () => {
+  const [app, css] = await Promise.all([
+    readFile(embeddedAppPath, "utf8"),
+    readFile(embeddedCssPath, "utf8"),
+  ]);
+  assert.match(app, /data-action="copy-path"/);
+  assert.match(app, /action === "copy-path"[\s\S]{0,180}copyPath\(asset\)/);
+  assert.match(app, /function positionCodexExclusionsPopover\(\)/);
+  assert.match(app, /button\.getBoundingClientRect\(\)/);
+  assert.match(app, /popover\.style\.left/);
+  assert.match(app, /popover\.style\.top/);
+  assert.match(css, /#codexExclusionsPopover \{[^}]*inset: auto;[^}]*overflow: auto;/);
+  assert.doesNotMatch(css, /top: calc\(anchor\(bottom\)/);
 });
 
 test("multi-asset composer handoff validates every path and stays bounded", async () => {

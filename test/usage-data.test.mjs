@@ -116,3 +116,15 @@ test("usage presentation is compact and has an honest unavailable fallback", asy
     ariaLabel: "Codex 剩余量暂不可用，正常重置 --，重置卡 --，Tibo概率 --",
   });
 });
+
+test("retains cached reset credits during an incomplete refresh", async () => {
+  const { mergeRateLimitUsage, presentRateLimit } = await usageModule();
+  const merged = mergeRateLimitUsage(
+    { remainingPercent: 40, resetCreditsAvailable: 2, resetCredits: [] },
+    { remainingPercent: 35, resetCreditsAvailable: null, resetCredits: null },
+  );
+  assert.equal(merged.remainingPercent, 35);
+  assert.equal(merged.resetCreditsAvailable, 2);
+  assert.deepEqual(merged.resetCredits, []);
+  assert.equal(presentRateLimit(merged, { timeZone: "UTC" }).resetCreditsText, "可用重置 2 次");
+});

@@ -42,5 +42,22 @@ test('account profiles keep tokens off renderer lists and switch through verifie
     await context.handleAccountProfilesBinding(JSON.stringify({ action: 'switch', id: 'old', requestId: 'switch-2' }));
     assert.match(replies[1], /native rejected/);
     assert.equal(JSON.parse(await readFile(authPath, 'utf8')).tokens.account_id, 'new');
+    store.remove('old');
+    assert.equal(store.list().profiles.some(profile => profile.id === 'old'), false);
+    assert.equal(JSON.parse(await readFile(authPath, 'utf8')).tokens.account_id, 'new');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('account profiles remove only non-current local profiles', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'enhancer-account-remove-'));
+  try {
+    const authPath = join(dir, 'auth.json');
+    const store = new AccountProfileStore({ root: dir, authPath });
+    await writeFile(authPath, JSON.stringify({ tokens: { account_id: 'current', access_token: 'current-access' } }));
+    store.upsert({ id: 'other', email: 'other@example.com', tokens: { account_id: 'other', access_token: 'other-access' } });
+    assert.throws(() => store.remove('current'), /不能移除当前账号/);
+    const state = store.remove('other');
+    assert.equal(state.profiles.some(profile => profile.id === 'other'), false);
+    assert.equal(JSON.parse(await readFile(authPath, 'utf8')).tokens.account_id, 'current');
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

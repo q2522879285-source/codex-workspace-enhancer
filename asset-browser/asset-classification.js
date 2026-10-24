@@ -5,7 +5,7 @@ export const ASSET_GROUPS = Object.freeze({
 });
 
 const aliases = new Map([
-  ...["official", "formal", "primary", "final", "production", "deliverable", "generated", "managed", "正式", "正式资产", "生成资产", "成片", "最终"].map((value) => [value, "official"]),
+  ...["official", "formal", "final", "master", "deliverable", "deliverables", "export", "exports", "正式", "正式资产", "成片", "最终", "交付"].map((value) => [value, "official"]),
   ...["review", "confirm", "pending", "unsure", "draft", "待确认", "待判断", "待审核", "草稿"].map((value) => [value, "review"]),
   ...["noise", "interference", "junk", "trash", "干扰", "干扰项", "噪声", "缓存", "过程文件"].map((value) => [value, "noise"])
 ]);
@@ -53,13 +53,38 @@ function serverResult(asset) {
   );
 }
 
+function hasFinalEvidence(asset) {
+  if ([asset.delivered, asset.isFinal, asset.finalDelivery, asset.official].some((value) => value === true)) return true;
+  return [
+    asset.deliveryStatus,
+    asset.finalStatus,
+    asset.status,
+    asset.userStatus,
+    asset.initialStatus,
+    asset.review?.deliveryStatus,
+    asset.review?.finalStatus,
+    asset.review?.status,
+    asset.review?.userStatus
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .some((value) => /^(?:final|master|approved|accepted|delivered|published|已交付|最终|成片|正式|通过)$/.test(value));
+}
+
 export function classifyAsset(asset = {}) {
-  const registered = asset.managed && asset.classification?.source === "registry" ? serverResult(asset) : null;
-  if (registered) return registered;
+  const registered = asset.managed && asset.classification?.source === "registry" && asset.projectId !== "pending-review"
+    ? serverResult(asset)
+    : null;
+  if (registered?.group === "official" && hasFinalEvidence(asset)) return registered;
   const manual = manualResult(asset);
   if (manual) return manual;
   const server = serverResult(asset);
-  if (server) return server;
+  if (server) {
+    if (server.group === "official" && asset.projectId !== "pending-review" && hasFinalEvidence(asset)) return server;
+    if (server.group === "official") {
+      return result("review", "服务端分类", "低", "服务端未提供可验证的最终交付证据");
+    }
+    if (asset.classification?.source !== "registry") return server;
+  }
 
   const kind = String(asset.kind || "").toLowerCase();
   const category = String(asset.category || "").toLowerCase();
@@ -72,9 +97,6 @@ export function classifyAsset(asset = {}) {
     return result("noise", "文件规则", "高", "路径或扩展名表明它是缓存、代理或未完成文件");
   }
 
-  const explicitOutput = /(^|\/)(?:成片|最终|交付|生成视频|finals?|masters?|deliverables?|exports?|outputs?|video[_-]?results?)(\/|$)/.test(path);
-  if (explicitOutput) return result("official", "目录规则", "高", "位于明确的成片、交付或生成结果目录");
-
   const processMedia = /(^|\/)(?:drafts?|process|working|preview|reverse|frame[_-]?extract|recordings?)(\/|$)/.test(path);
   if (["video", "audio"].includes(kind) && processMedia) {
     return result("review", "媒体规则", "中", "过程性音视频需人工确认用途，未自动视为正式资产");
@@ -86,7 +108,7 @@ export function classifyAsset(asset = {}) {
   if (["generatedasset", "reference", "reverse", "videoresult"].includes(category)
       || ["frame", "contact"].includes(kind)
       || /(^|\/)(?:assets?|参考|图片|images?|stills?|frames?)(\/|$)/.test(path)) {
-    return result("official", "资产目录规则", "中", "位于已识别的图片、参考或抽帧资产目录");
+    return result("review", "资产目录规则", "低", "普通图片、参考或抽帧资产未明确标记为最终交付");
   }
 
   return result("review", "保守默认", "低", "缺少人工分组和可验证的资产目录信号");

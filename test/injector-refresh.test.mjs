@@ -4,7 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 import { presentCardPreview } from "../lib/card-view.mjs";
 import { normalizeTaskId } from "../lib/task-context-store.mjs";
-import { presentRateLimit } from "../lib/usage-data.mjs";
+import { mergeRateLimitUsage, presentRateLimit } from "../lib/usage-data.mjs";
 import { mergeTiboUsage } from "../lib/tibo-public-feed.mjs";
 import { buildHomeProjectShelf } from "../lib/home-projects.mjs";
 
@@ -42,7 +42,7 @@ test("public refresh delivers previews, usage and overview without a business st
       tiboChallenge: { phase: "active", day: 2, totalDays: 28, status: "improvement",
         deadlineIso: "2026-10-06T16:00:00Z", remainingMinutes: 120, summary: "公开产品改进", stale: false },
     }),
-    presentCardPreview, normalizeTaskId, presentRateLimit, mergeTiboUsage, buildHomeProjectShelf,
+    presentCardPreview, normalizeTaskId, mergeRateLimitUsage, presentRateLimit, mergeTiboUsage, buildHomeProjectShelf,
   });
   vm.runInContext(source.slice(begin, end), context);
   await context.pushPreviews();

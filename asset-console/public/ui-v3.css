@@ -3996,17 +3996,19 @@ body.codex-embedded .toolbar .search-cluster input {
 }
 body.codex-embedded .toolbar .search-cluster input::placeholder { color: #9aa5ad; }
 body.codex-embedded .toolbar .search-cluster input:focus { border-color: #86a9c4; outline: 1px solid #86a9c4; outline-offset: 0; }
-body.codex-embedded #codexExclusionsButton { anchor-name: --resource-exclusions; display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; height: 34px; min-height: 34px; padding: 0 8px; border: 1px solid #363e43; border-radius: 6px; font-size: 11px; color: var(--soft); background: transparent; white-space: nowrap; }
+body.codex-embedded #codexExclusionsButton { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; height: 34px; min-height: 34px; padding: 0 8px; border: 1px solid #363e43; border-radius: 6px; font-size: 11px; color: var(--soft); background: transparent; white-space: nowrap; }
 body.codex-embedded #codexExclusionsButton:hover { background: #2b3237; border-color: #54636e; }
+body.codex-embedded #codexExclusionsButton[aria-expanded="true"] { color: #edf5fb; background: #303b43; border-color: #86a9c4; box-shadow: 0 0 0 2px rgba(134, 169, 196, .12); }
 body.codex-embedded #codexExclusionsCount { min-width: 16px; padding: 1px 3px; border-radius: 4px; background: #34434e; color: #c8deee; font-size: 10px; text-align: center; }
-#codexExclusionsPopover { position: fixed; position-anchor: --resource-exclusions; inset: 90px 16px auto auto; top: calc(anchor(bottom) + 6px); right: anchor(right); margin: 0; width: 264px; max-width: calc(100vw - 24px); max-height: calc(100vh - 110px); overflow: auto; padding: 14px; border: 1px solid #495760; border-radius: 9px; color: #dce5eb; background: #242a2e; box-shadow: 0 12px 30px #0006; font-size: 12px; }
-.resource-exclusions-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.resource-exclusions-heading strong { font-size: 12px; font-weight: 600; }
+#codexExclusionsPopover { position: fixed; inset: auto; left: 12px; top: 12px; right: auto; bottom: auto; box-sizing: border-box; margin: 0; width: min(264px, calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow: auto; overscroll-behavior: contain; padding: 14px; border: 1px solid #495760; border-radius: 9px; color: #dce5eb; background: #242a2e; box-shadow: 0 12px 30px #0006; font-size: 12px; }
+#codexExclusionsPopover[hidden] { display: none !important; }
+.resource-exclusions-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.resource-exclusions-heading strong { min-width: 0; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 #codexRestoreTypes { min-height: 26px; padding: 2px 0 2px 8px; border: 0; font-size: 11px; color: #a5c9e1; background: transparent; }
 #codexRestoreTypes:hover { color: #e4f1fa; }
 #codexExclusionsPopover p { margin: 6px 0 10px; color: #a1adb5; font-size: 11px; }
 .resource-exclusions-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; padding: 8px 0; border-block: 1px solid #39434a; }
-.resource-exclusions-options label { display: flex; align-items: center; gap: 8px; min-height: 30px; margin: 0; padding: 3px 5px; border-radius: 4px; cursor: pointer; }
+.resource-exclusions-options label { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 30px; margin: 0; padding: 3px 5px; border-radius: 4px; cursor: pointer; overflow-wrap: anywhere; }
 .resource-exclusions-options label:hover { background: #303b42; }
 .resource-exclusions-options input { appearance: auto; flex: 0 0 14px; width: 14px; min-width: 14px; height: 14px; min-height: 0; margin: 0; accent-color: #9dc1db; }
 #codexExclusionsPopover > small { display: block; margin-top: 10px; color: #95a3ad; font-size: 10px; line-height: 1.5; }
@@ -4177,4 +4179,52 @@ body.codex-embedded .empty-state { grid-column: 1/-1; min-height: 160px; padding
   body.codex-embedded .resource-types button { padding: 0 7px; }
   body.codex-embedded .resource-visible-count { display: none; }
   body.codex-embedded .resource-scopes button { padding: 0 9px; }
+}
+
+/* Keep the embedded controls usable when Codex gives the asset pane a narrow column. */
+@media (max-width: 680px) {
+  body.codex-embedded .toolbar {
+    flex-wrap: wrap;
+  }
+  body.codex-embedded .search-cluster {
+    flex: 1 0 100%;
+    max-width: none;
+  }
+  body.codex-embedded #codexExclusionsButton,
+  body.codex-embedded .embedded-filter-menu,
+  body.codex-embedded .embedded-filter-menu > summary {
+    flex: 0 0 auto;
+  }
+}
+
+body.codex-embedded .resource-types {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+}
+
+body.codex-embedded .resource-browse-bar {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+body.codex-embedded .resource-browse-bar::-webkit-scrollbar {
+  display: none;
+}
+body.codex-embedded #codexFolderFilter {
+  flex: 1 0 120px;
+}
+body.codex-embedded .resource-visible-count,
+body.codex-embedded #sortSelect,
+body.codex-embedded #selectionModeButton,
+body.codex-embedded .resource-views {
+  flex: 0 0 auto;
+}
+body.codex-embedded .resource-visible-count {
+  margin-right: 0;
+}
+
+body.codex-embedded #codexExclusionsPopover {
+  inset: 12px auto auto 12px;
+  left: 12px;
+  right: auto;
+  margin: 0;
 }

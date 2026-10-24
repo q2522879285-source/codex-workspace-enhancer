@@ -14,7 +14,7 @@ import { PreviewRepository } from "../lib/preview-data.mjs";
 import { ColdHistoryStore } from "../lib/cold-history-store.mjs";
 import { normalizeTaskId, updateSkillDefaults } from "../lib/task-context-store.mjs";
 import { presentCardPreview } from "../lib/card-view.mjs";
-import { presentRateLimit } from "../lib/usage-data.mjs";
+import { mergeRateLimitUsage, presentRateLimit } from "../lib/usage-data.mjs";
 import { closeNativeRateLimits, readNativeRateLimits } from "../lib/native-rate-limits.mjs";
 import { mergeTiboUsage, readTiboPublicSignal } from "../lib/tibo-public-feed.mjs";
 import { needsPreviewAttachment } from "../lib/injector-state.mjs";
@@ -301,11 +301,12 @@ async function handleTaskMapIndexBinding(payload) {
 async function handleAccountProfilesBinding(payload) {
   let message;
   try { message = JSON.parse(payload); } catch { return; }
-  if (!['list', 'sync', 'upsert', 'switch'].includes(message?.action)) return;
+  if (!['list', 'sync', 'upsert', 'switch', 'remove'].includes(message?.action)) return;
   const result = { requestId: typeof message.requestId === 'string' ? message.requestId : null };
   try {
     if (message.action === 'list' || message.action === 'sync') result.data = accountProfileStore.list();
     else if (message.action === 'upsert') result.data = { profile: accountProfileStore.upsert(message.profile) };
+    else if (message.action === 'remove') result.data = accountProfileStore.remove(message.id);
     else {
       const profile = accountProfileStore.profile(message.id);
       if (!profile) throw Error('账号 profile 不存在');
@@ -1223,9 +1224,16 @@ async function pushPreviews() {
   const activeThread = sidebarState?.activeThread || {};
   tickColdHistory();
   const coldHistoryStatus = await coldHistory.getStatus(activeThread.id);
-  const [rawPreviews, rawUsage, nativeUsage, taskboard, searchCatalog, overview, tiboSignal] = await Promise.all([
+  const usageCache = repository.__codexUsageCache || (repository.__codexUsageCache = {
+    raw: null,
+    merged: null,
+    refreshPromise: null,
+  });
+  if (!usageCache.refreshPromise) {
+    usageCache.refreshPromise = repository.readUsage().then((value) => { if (value) usageCache.raw = value; }).catch(() => {}).finally(() => { usageCache.refreshPromise = null; });
+  }
+  const [rawPreviews, nativeUsage, taskboard, searchCatalog, overview, tiboSignal] = await Promise.all([
     repository.readMany(requests),
-    repository.readUsage(),
     readNativeRateLimits(),
     readTaskboardSnapshot(),
     repository.readSearchCatalog(),
@@ -1255,7 +1263,9 @@ async function pushPreviews() {
         ...(activePreview.updatedAt ? { updatedAt: activePreview.updatedAt } : {}),
       }
     : overview;
-  const usage = presentRateLimit(mergeTiboUsage(nativeUsage || rawUsage, tiboSignal), {});
+  const usageSource = mergeRateLimitUsage(usageCache.merged, nativeUsage || usageCache.raw);
+  if (usageSource) usageCache.merged = usageSource;
+  const usage = usageSource ? presentRateLimit(mergeTiboUsage(usageSource, tiboSignal), {}) : null;
   const homeProjects = taskboard.available
     ? {
         available: true,

@@ -7507,10 +7507,19 @@
     profiles.forEach(profile => {
       const item = firstItem.cloneNode(true); item.dataset.codexAccountProfile = "true"; item.dataset.codexAccountProfileId = String(profile.id);
       item.setAttribute("aria-label", profile.email || profile.name || `账号 ${profile.id}`);
-      item.innerHTML = '<div data-menu-row-content="true" class="flex w-full min-w-0 items-center gap-[var(--spacing-menu-item-content,calc(var(--spacing)*1.5))]"><span class="flex-1 min-w-0 truncate"></span><span data-account-profile-check="true" aria-hidden="true"></span></div>';
+      item.innerHTML = '<div data-menu-row-content="true" class="flex w-full min-w-0 items-center gap-[var(--spacing-menu-item-content,calc(var(--spacing)*1.5))]"><span class="flex-1 min-w-0 truncate"></span><span data-account-profile-check="true" aria-hidden="true"></span><button type="button" data-account-profile-remove="true" class="shrink-0 rounded-button-toolbar px-1.5 py-0.5 text-xs text-secondary hover:bg-text/10" aria-label="移除本机账号">移除</button></div>';
       item.querySelector('.truncate').textContent = profile.name || profile.email || `账号 ${profile.id}`;
       const active = profile.id === accountProfiles.activeProfileId; item.querySelector('[data-account-profile-check]').textContent = active ? "当前" : "";
       if (active) item.dataset.active = "true";
+      const remove = item.querySelector('[data-account-profile-remove="true"]');
+      remove.hidden = active;
+      remove.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (item.getAttribute("aria-busy") === "true") return;
+        item.setAttribute("aria-busy", "true");
+        requestAccountProfiles("remove", { id: profile.id }).catch(() => {}).finally(() => item.removeAttribute("aria-busy"));
+      });
       item.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); if (active || item.getAttribute("aria-busy") === "true") return; item.setAttribute("aria-busy", "true"); requestAccountProfiles("switch", { id: profile.id }).catch(() => {}).finally(() => item.removeAttribute("aria-busy")); });
       fragment.appendChild(item);
     });

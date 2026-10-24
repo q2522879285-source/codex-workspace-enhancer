@@ -23,7 +23,7 @@ const state = {
   batchBusy: false,
   projectOrganizeBusy: false,
   categoryFilter: "",
-  smartGroupFilter: "",
+  smartGroupFilter: codexEmbedded ? "official" : "",
   statusFilter: "",
   typeFilter: "",
   query: "",
@@ -180,6 +180,8 @@ const els = {
   embeddedStatusFilter: document.querySelector("#embeddedStatusFilter"),
   embeddedTypeFilter: document.querySelector("#embeddedTypeFilter"),
   clearEmbeddedFilters: document.querySelector("#clearEmbeddedFilters"),
+  codexExclusionsButton: document.querySelector("#codexExclusionsButton"),
+  codexExclusionsPopover: document.querySelector("#codexExclusionsPopover"),
   batchBar: document.querySelector("#batchBar"),
   batchCount: document.querySelector("#batchCount"),
   selectVisibleAssets: document.querySelector("#selectVisibleAssets"),
@@ -740,6 +742,27 @@ function renderCodexResourceControls() {
   });
 }
 
+function positionCodexExclusionsPopover() {
+  const button = els.codexExclusionsButton;
+  const popover = els.codexExclusionsPopover;
+  if (!button || !popover || popover.hidden) return;
+  const buttonRect = button.getBoundingClientRect();
+  const edge = 12;
+  const gap = 6;
+  const below = Math.max(0, window.innerHeight - buttonRect.bottom - edge - gap);
+  const above = Math.max(0, buttonRect.top - edge - gap);
+  popover.style.maxHeight = `${Math.max(96, Math.min(360, Math.max(above, below)))}px`;
+  const popoverRect = popover.getBoundingClientRect();
+  const openAbove = below < popoverRect.height && above > below;
+  const top = openAbove ? buttonRect.top - popoverRect.height - gap : buttonRect.bottom + gap;
+  const left = Math.min(
+    Math.max(edge, buttonRect.right - popoverRect.width),
+    Math.max(edge, window.innerWidth - popoverRect.width - edge)
+  );
+  popover.style.left = `${Math.round(left)}px`;
+  popover.style.top = `${Math.round(Math.min(Math.max(edge, top), Math.max(edge, window.innerHeight - popoverRect.height - edge)))}px`;
+}
+
 async function selectCodexScope(scope, sharedProject = state.codexSharedProject || "ai-reference-library") {
   if (!["project", "shared"].includes(scope)) return;
   if (scope === "shared" && !["ai-reference-library", "mj-library"].includes(sharedProject)) return;
@@ -1135,6 +1158,42 @@ function returnToCodexComposer() {
 function wireCodexIntegration() {
   if (!state.codexEmbedded) return;
   state.codexExcludedTypes = readCodexExcludedTypes();
+  const exclusionsButton = els.codexExclusionsButton;
+  const exclusionsPopover = els.codexExclusionsPopover;
+  const nativePopover = Boolean(exclusionsPopover && typeof exclusionsPopover.showPopover === "function");
+  const setExclusionsOpen = (open) => {
+    if (!exclusionsPopover || !exclusionsButton) return;
+    exclusionsButton.setAttribute("aria-expanded", String(open));
+    if (nativePopover) return;
+    exclusionsPopover.hidden = !open;
+    exclusionsPopover.dataset.fallbackOpen = String(open);
+    if (open) requestAnimationFrame(positionCodexExclusionsPopover);
+  };
+  if (exclusionsPopover && exclusionsButton) {
+    if (nativePopover) {
+      exclusionsPopover.addEventListener("toggle", () => {
+        const open = exclusionsPopover.matches(":popover-open");
+        setExclusionsOpen(open);
+        if (open) requestAnimationFrame(positionCodexExclusionsPopover);
+      });
+    } else {
+      exclusionsPopover.hidden = true;
+      exclusionsButton.removeAttribute("popovertarget");
+      exclusionsButton.addEventListener("click", () => setExclusionsOpen(exclusionsPopover.hidden));
+      document.addEventListener("pointerdown", (event) => {
+        if (!exclusionsPopover.hidden && !exclusionsPopover.contains(event.target) && event.target !== exclusionsButton) {
+          setExclusionsOpen(false);
+        }
+      });
+    }
+    const reposition = () => {
+      if (exclusionsPopover.matches?.(":popover-open") || exclusionsPopover.dataset.fallbackOpen === "true") {
+        positionCodexExclusionsPopover();
+      }
+    };
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+  }
   document.querySelectorAll("[data-codex-exclude]").forEach((input) => {
     input.addEventListener("change", () => {
       const types = new Set(state.codexExcludedTypes);
@@ -2867,7 +2926,10 @@ function renderSmartGroupCounts() {
   for (const asset of state.assets.map(enrichAsset)) counts[classificationOf(asset).group] += 1;
   els.smartGroupFilters?.querySelectorAll("[data-smart-group]").forEach((button) => {
     const group = button.dataset.smartGroup;
+    const active = group === state.smartGroupFilter;
     button.innerHTML = `<span>${ASSET_GROUPS[group] || "全部分组"}</span><small>${counts[group] || 0}</small>`;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
 }
 
@@ -3515,6 +3577,9 @@ function renderAssetCard(asset) {
   const codexAction = state.codexEmbedded && !asset.isGroup
     ? '<button data-action="use-in-codex" class="card-use-in-codex" aria-label="附加到对话" title="添加到输入框上方，不自动发送">引用</button>'
     : "";
+  const copyAction = state.codexEmbedded && !asset.isGroup
+    ? '<button data-action="copy-path" title="复制完整路径">复制</button>'
+    : "";
   const downloadAction = asset.isGroup
     ? `<button data-action="folder">文件夹</button>`
     : `<a href="${escapeHtml(asset.downloadUrl)}" download>下载</a>`;
@@ -3530,6 +3595,7 @@ function renderAssetCard(asset) {
       <div class="card-actions">
         ${codexAction}
         <button data-action="select">${actionLabel}</button>
+        ${copyAction}
         ${moveAction}
         <button data-action="reveal">文件夹</button>
         ${downloadAction}
@@ -3568,6 +3634,10 @@ function renderAssetCard(asset) {
     if (action === "use-in-codex") {
       event.stopPropagation();
       return sendAssetToCodex(asset);
+    }
+    if (action === "copy-path") {
+      event.stopPropagation();
+      return copyPath(asset).catch(showError);
     }
     if ((state.multiSelect || event.ctrlKey || event.metaKey) && !asset.isGroup) {
       event.preventDefault();
@@ -5751,6 +5821,13 @@ function wireFilters() {
       document.querySelector("#toolMenu")?.removeAttribute("open");
       els.embeddedFilterMenu?.removeAttribute("open");
       els.codexBindingMenu?.removeAttribute("open");
+      if (els.codexExclusionsPopover?.dataset.fallbackOpen === "true") {
+        els.codexExclusionsPopover.hidden = true;
+        delete els.codexExclusionsPopover.dataset.fallbackOpen;
+        els.codexExclusionsButton?.setAttribute("aria-expanded", "false");
+      } else if (typeof els.codexExclusionsPopover?.hidePopover === "function" && els.codexExclusionsPopover.matches(":popover-open")) {
+        els.codexExclusionsPopover.hidePopover();
+      }
       const modalOpen = document.querySelector("dialog[open]");
       if (!modalOpen && state.compareMode) {
         state.compareMode = false;

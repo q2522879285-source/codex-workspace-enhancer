@@ -422,7 +422,18 @@ async function findManagedOutput({ outputId = "", projectId = "", relativePath =
 }
 
 function managedClassification(output) {
-  const smartGroup = output.projectId === "pending-review" ? "review" : "official";
+  const status = [
+    output.deliveryStatus,
+    output.finalStatus,
+    output.status,
+    output.review?.deliveryStatus,
+    output.review?.finalStatus,
+    output.review?.status,
+    output.review?.userStatus
+  ].map((value) => String(value || "").trim().toLowerCase());
+  const finalStatus = status.some((value) => /^(?:final|master|approved|accepted|delivered|published|已交付|最终|成片|正式|通过)$/.test(value));
+  const explicitFinal = [output.delivered, output.isFinal, output.finalDelivery, output.official].some((value) => value === true);
+  const smartGroup = output.projectId === "pending-review" || !(finalStatus || explicitFinal) ? "review" : "official";
   const category = output.kind === "audio"
     ? "audio"
     : output.kind === "video" ? "videoResult" : "generatedAsset";
