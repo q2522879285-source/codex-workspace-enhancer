@@ -6,7 +6,7 @@
 
 [下载发布包](https://github.com/q2522879285-source/codex-workspace-enhancer/releases/latest) · [修改与扩展](docs/EXTENDING.md) · [版本区别](CHANGELOG.md) · [English](README.en.md)
 
-![Codex Sidebar Enhancer 3.0.4：MOKE 与 VSC 云端资料库](docs/codex-workspace-enhancer-onepage.png)（[源稿](docs/codex-workspace-enhancer-onepage.html)）
+![Codex Sidebar Enhancer 3.0.4：MOKE 与 VSC 云端资料库](docs/codex-workspace-enhancer-onepage.png)（PNG 主视觉 · [HTML 源稿](docs/codex-workspace-enhancer-onepage.html)）
 
 ## 一套连续的工作台
 
