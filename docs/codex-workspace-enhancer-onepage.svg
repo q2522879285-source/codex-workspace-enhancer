@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111e"/><stop offset="0.55" stop-color="#0b1827"/><stop offset="1" stop-color="#07111e"/>
+    </linearGradient>
+    <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b3f8dc"/><stop offset="1" stop-color="#55d9b1"/></linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#89c5ff"/><stop offset="1" stop-color="#567cff"/></linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#cfb5ff"/><stop offset="1" stop-color="#8d7bff"/></linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffd98e"/><stop offset="1" stop-color="#f0a55d"/></linearGradient>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse"><path d="M44 0H0V44" fill="none" stroke="#8ca5bf" stroke-opacity=".055"/></pattern>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="34"/></filter>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000" flood-opacity=".28"/></filter>
+    <style>
+      .sans{font-family:'Noto Sans SC','Microsoft YaHei','SimHei',sans-serif;fill:#f4f8fc}
+      .muted{font-family:'Noto Sans SC','Microsoft YaHei','SimHei',sans-serif;fill:#9fb1c4}
+      .tiny{font-family:'Noto Sans SC','Microsoft YaHei','SimHei',sans-serif;fill:#83a0b9;letter-spacing:2px}
+      .line{stroke:#6d89a5;stroke-opacity:.35;fill:none}
+    </style>
+  </defs>
+  <rect width="1080" height="1920" fill="url(#bg)"/>
+  <rect width="1080" height="1920" fill="url(#grid)"/>
+  <circle cx="892" cy="180" r="270" fill="#43c7a2" opacity=".08" filter="url(#glow)"/>
+  <circle cx="80" cy="1150" r="260" fill="#527cff" opacity=".07" filter="url(#glow)"/>
+
+  <text x="72" y="92" class="tiny" font-size="22" font-weight="700">CODEX WORKSPACE ENHANCER</text>
+  <rect x="786" y="58" width="222" height="52" rx="26" fill="#112437" stroke="#5b7892" stroke-width="1.5"/>
+  <circle cx="812" cy="84" r="6" fill="#65e1ba"/>
+  <text x="830" y="92" class="muted" font-size="20">本地 · 可回滚 · MIT</text>
+
+  <text x="72" y="192" class="sans" font-size="64" font-weight="800">把任务、资料与下一步</text>
+  <text x="72" y="276" fill="url(#mint)" font-size="74" font-weight="800" class="sans">留在同一个工作台</text>
+  <text x="76" y="332" class="muted" font-size="27">侧栏增强器 3.0.4　让 Codex 的工作流更连续、更清楚</text>
+  <path d="M76 365H1004" stroke="#5eddb5" stroke-opacity=".28"/>
+  <rect x="72" y="388" width="936" height="68" rx="18" fill="#0f2431" stroke="#285545"/>
+  <text x="98" y="431" fill="url(#mint)" class="sans" font-size="25" font-weight="700">3.0.4 更新</text>
+  <text x="270" y="431" class="muted" font-size="23">日常 / 工作分组恢复　·　资源与账号体验优化　·　公开包脱敏</text>
+
+  <!-- product frame -->
+  <rect x="52" y="492" width="976" height="650" rx="26" fill="#101d2b" stroke="#49647d" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="52" y="492" width="976" height="64" rx="26" fill="#172838"/>
+  <rect x="52" y="530" width="976" height="26" fill="#172838"/>
+  <circle cx="84" cy="524" r="8" fill="#ff6b6b"/><circle cx="112" cy="524" r="8" fill="#f4c354"/><circle cx="140" cy="524" r="8" fill="#65d99b"/>
+  <rect x="194" y="508" width="246" height="36" rx="11" fill="#26394d"/><text x="216" y="533" class="sans" font-size="18">Codex Workspace</text>
+  <text x="960" y="533" class="muted" font-size="18" text-anchor="end">工作台 · 3.0.4</text>
+
+  <!-- left rail -->
+  <rect x="74" y="580" width="214" height="532" rx="18" fill="#122334" stroke="#263f55"/>
+  <text x="98" y="620" class="sans" font-size="24" font-weight="800">CODEX</text>
+  <text x="98" y="646" class="tiny" font-size="12">WORKSPACE ENHANCER</text>
+  <rect x="90" y="673" width="182" height="42" rx="11" fill="#25425a" stroke="#3c9f8b"/>
+  <circle cx="111" cy="694" r="7" fill="#74e4be"/><text x="130" y="701" class="sans" font-size="18">任务工作台</text>
+  <circle cx="111" cy="744" r="7" fill="#7fa8c7"/><text x="130" y="751" class="muted" font-size="18">任务地图</text>
+  <circle cx="111" cy="794" r="7" fill="#9e8aff"/><text x="130" y="801" class="muted" font-size="18">Skills</text>
+  <circle cx="111" cy="844" r="7" fill="#86baff"/><text x="130" y="851" class="muted" font-size="18">项目资产</text>
+  <circle cx="111" cy="894" r="7" fill="#f4b96a"/><text x="130" y="901" class="muted" font-size="18">资料库</text>
+  <path d="M98 935H264" class="line"/>
+  <text x="98" y="968" class="tiny" font-size="14">会话分组</text>
+  <text x="113" y="1004" class="muted" font-size="17">日常　　工作</text>
+  <text x="113" y="1040" class="muted" font-size="17">重要　　Codex</text>
+  <text x="113" y="1076" class="muted" font-size="17">Lark　　GitHub</text>
+
+  <!-- center workspace -->
+  <rect x="310" y="580" width="432" height="532" rx="18" fill="#142536" stroke="#263f55"/>
+  <text x="338" y="624" class="tiny" font-size="14">当前任务 · 设计系统</text>
+  <text x="338" y="664" class="sans" font-size="30" font-weight="700">组件规范与下一步</text>
+  <rect x="338" y="692" width="376" height="74" rx="16" fill="#1d3349"/>
+  <circle cx="366" cy="729" r="17" fill="#4f9be8"/><text x="396" y="722" class="muted" font-size="18">今天</text><text x="396" y="747" class="sans" font-size="19">完成资源库入口与筛选</text>
+  <rect x="338" y="780" width="376" height="74" rx="16" fill="#183a3b"/>
+  <circle cx="366" cy="817" r="17" fill="#64d7af"/><text x="396" y="810" class="muted" font-size="18">下一步</text><text x="396" y="835" class="sans" font-size="19">按需通过 MCP 检索正文</text>
+  <text x="338" y="906" class="tiny" font-size="14">任务地图</text>
+  <rect x="338" y="930" width="130" height="50" rx="12" fill="#23445d" stroke="#6eacf1"/><text x="403" y="961" class="sans" font-size="17" text-anchor="middle">方向</text>
+  <path d="M468 955H520" stroke="#6eacf1" stroke-width="2"/>
+  <rect x="520" y="930" width="160" height="50" rx="12" fill="#1a4b43" stroke="#65dbb3"/><text x="600" y="961" class="sans" font-size="17" text-anchor="middle">当前事项</text>
+  <path d="M600 980V1014M600 1014H532M600 1014H668" stroke="#7fa8c7" stroke-width="2"/>
+  <rect x="492" y="1020" width="80" height="40" rx="10" fill="#332b55"/><text x="532" y="1046" class="muted" font-size="14" text-anchor="middle">计划</text>
+  <rect x="628" y="1020" width="80" height="40" rx="10" fill="#4c3927"/><text x="668" y="1046" class="muted" font-size="14" text-anchor="middle">资料</text>
+
+  <!-- right context -->
+  <rect x="764" y="580" width="240" height="532" rx="18" fill="#142536" stroke="#263f55"/>
+  <text x="790" y="624" class="sans" font-size="22" font-weight="700">资源与状态</text>
+  <rect x="786" y="650" width="196" height="42" rx="12" fill="#24384c"/><circle cx="807" cy="671" r="7" fill="#f6bf67"/><text x="824" y="678" class="sans" font-size="16">MOKE 资料库</text>
+  <text x="798" y="728" class="muted" font-size="16">设计规范</text><text x="968" y="728" class="tiny" font-size="13" text-anchor="end">按需搜索</text>
+  <text x="798" y="766" class="muted" font-size="16">开发文档</text><text x="968" y="766" class="tiny" font-size="13" text-anchor="end">MCP</text>
+  <text x="798" y="804" class="muted" font-size="16">参考案例</text><text x="968" y="804" class="tiny" font-size="13" text-anchor="end">缓存</text>
+  <path d="M788 832H980" class="line"/>
+  <text x="790" y="870" class="tiny" font-size="14">本机账号</text>
+  <rect x="788" y="888" width="194" height="56" rx="14" fill="#1a3341"/><circle cx="812" cy="916" r="12" fill="#77dbba"/><text x="836" y="912" class="sans" font-size="15">原生状态</text><text x="836" y="932" class="muted" font-size="13">额度 / 重置可回读</text>
+  <rect x="788" y="964" width="194" height="56" rx="14" fill="#282e43"/><circle cx="812" cy="992" r="12" fill="#9b8bff"/><text x="836" y="988" class="sans" font-size="15">本地恢复</text><text x="836" y="1008" class="muted" font-size="13">配置 / 回滚分层</text>
+  <text x="790" y="1070" class="tiny" font-size="13">不上传任务、素材与账号态</text>
+
+  <text x="72" y="1200" class="tiny" font-size="16">THE WORKBENCH, NOT JUST A SIDEBAR</text>
+  <text x="72" y="1250" class="sans" font-size="39" font-weight="800">一套工作台，四个入口</text>
+  <text x="72" y="1287" class="muted" font-size="21">从侧栏导航到下一步落地，每个入口都服务同一条工作流。</text>
+
+  <!-- feature cards -->
+  <g filter="url(#shadow)">
+    <rect x="56" y="1320" width="468" height="184" rx="22" fill="#122334" stroke="#2c4a61"/>
+    <rect x="556" y="1320" width="468" height="184" rx="22" fill="#122334" stroke="#2c4a61"/>
+    <rect x="56" y="1528" width="468" height="184" rx="22" fill="#122334" stroke="#2c4a61"/>
+    <rect x="556" y="1528" width="468" height="184" rx="22" fill="#122334" stroke="#2c4a61"/>
+  </g>
+  <circle cx="112" cy="1378" r="27" fill="#1e4354"/><path d="M100 1378h24M112 1366v24" stroke="#75e2bd" stroke-width="3"/>
+  <text x="158" y="1378" class="sans" font-size="28" font-weight="700">任务与接续</text><text x="88" y="1422" class="muted" font-size="19">分组、摘要、Task Map，下一步始终可见</text><text x="88" y="1460" class="tiny" font-size="14">NAVIGATION · CONTEXT · MAP</text>
+  <circle cx="612" cy="1378" r="27" fill="#243b61"/><path d="M599 1378h26M612 1365v26" stroke="#86baff" stroke-width="3"/><text x="658" y="1378" class="sans" font-size="28" font-weight="700">资料与浏览</text><text x="588" y="1422" class="muted" font-size="19">内嵌浏览器 + MOKE，按需通过 MCP 检索</text><text x="588" y="1460" class="tiny" font-size="14">BROWSER · MCP · PREVIEW</text>
+  <circle cx="112" cy="1586" r="27" fill="#322d58"/><path d="M100 1574h24v24h-24zM106 1580h12" fill="none" stroke="#b29cff" stroke-width="3"/><text x="158" y="1586" class="sans" font-size="28" font-weight="700">Skills 与资产</text><text x="88" y="1630" class="muted" font-size="19">全局 / 项目默认，预览、归属、整理、附加</text><text x="88" y="1668" class="tiny" font-size="14">SKILLS · ASSETS · WORKFLOW</text>
+  <circle cx="612" cy="1586" r="27" fill="#51402a"/><path d="M600 1586h24M612 1574v24" stroke="#ffcf7b" stroke-width="3"/><text x="658" y="1586" class="sans" font-size="28" font-weight="700">状态与恢复</text><text x="588" y="1630" class="muted" font-size="19">账号额度、缓存分层、配置与回滚更清楚</text><text x="588" y="1668" class="tiny" font-size="14">ACCOUNT · CACHE · ROLLBACK</text>
+
+  <rect x="56" y="1750" width="968" height="86" rx="20" fill="#102a2e" stroke="#2e695a"/>
+  <text x="84" y="1788" fill="url(#mint)" class="sans" font-size="23" font-weight="700">按需配置</text>
+  <text x="84" y="1818" class="muted" font-size="18">Windows · Node.js ≥ 22.13 · Codex Desktop　|　第三方开源扩展，不上传任务与素材</text>
+  <text x="72" y="1870" class="tiny" font-size="13">OPEN SOURCE · COMMUNITY EXTENSION · PUBLIC FEATURES ONLY</text>
+  <text x="72" y="1902" fill="url(#mint)" class="sans" font-size="17">github.com/q2522879285-source/codex-workspace-enhancer</text>
+</svg>

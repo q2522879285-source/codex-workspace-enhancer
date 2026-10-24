@@ -6,7 +6,7 @@
 
 [下载发布包](https://github.com/q2522879285-source/codex-workspace-enhancer/releases/latest) · [修改与扩展](docs/EXTENDING.md) · [版本区别](CHANGELOG.md) · [English](README.en.md)
 
-![Codex Workspace Enhancer 3.0 功能界面示意](docs/codex-workspace-enhancer-onepage.png)
+![Codex Workspace Enhancer 3.0.4 工作台总览](docs/codex-workspace-enhancer-onepage.png)
 
 ## 一套连续的工作台
 
